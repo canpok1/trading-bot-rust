@@ -21,7 +21,8 @@
 	// Add the IDs of extensions you want installed when the container is created.
 	"extensions": [
 		"rust-lang.rust",
-		"vadimcn.vscode-lldb"
+		"vadimcn.vscode-lldb",
+		"jebbs.plantuml"
 	]
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],

@@ -1,0 +1,46 @@
+@startuml trading-bot-rust
+start
+
+:初期化;
+
+repeat
+    :情報取得;
+
+    partition 行動決定 {
+        if (未使用コイン) then (一定以上)
+            :行動リストに売り注文を追加;
+        endif
+
+        if (未決済注文のレート) then (現レートとの差が一定以上)
+            :行動リストに損切りを追加;
+        endif
+
+        if (残高JPY) then (注文不可)
+        elseif (レジスタンスライン) then (ブレイクアウト)
+            :行動リストにエントリー追加;
+        elseif (サポートライン) then (リバウンド)
+            :行動リストにエントリー追加;
+        endif
+    }
+
+    partition 行動 {
+        while (未実施の行動がある？) is (yes)
+            if (エントリー) then (yes)
+                :成行買い注文;
+                :約定待ち;
+                :指値売り注文;
+            elseif (損切り) then (yes)
+                :注文キャンセル;
+                :キャンセル待ち;
+                :成行売り注文;
+            elseif (売り注文) then (yes)
+                :指値売り注文;
+            endif
+        endwhile
+    }
+
+    :待機;
+repeat while
+
+stop
+@enduml
