@@ -6,6 +6,21 @@ start
 repeat
     :情報取得;
 
+    :DB保存;
+    note right
+        ・トレンドライン
+        ・レジスタンスライン
+        ・サポートライン
+        ・約定待ちレート
+    end note
+
+    if (保有コイン) then (なし)
+        :DB保存;
+        note right
+            ・残高JPY
+        end note
+    endif
+
     partition 行動決定 {
         if (未使用コイン) then (一定以上)
             :行動リストに売り注文を追加;
@@ -16,9 +31,10 @@ repeat
         endif
 
         if (残高JPY) then (注文不可)
-        elseif (レジスタンスライン) then (ブレイクアウト)
+        elseif (長期トレンド) then (下降)
+        elseif (短期レジスタンスライン) then (ブレイクアウト)
             :行動リストにエントリー追加;
-        elseif (サポートライン) then (リバウンド)
+        elseif (短期サポートライン) then (リバウンド)
             :行動リストにエントリー追加;
         endif
     }
