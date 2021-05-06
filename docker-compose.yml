@@ -4,3 +4,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    env_file:
+      - configs/bot.env
+      - configs/db.env
+      - configs/slack.env
+      - configs/exchange.env

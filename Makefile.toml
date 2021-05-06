@@ -1,0 +1,10 @@
+env_files = [
+    "./configs/bot.env",
+    "./configs/bot.env",
+    "./configs/slack.env",
+    "./configs/exchange.env"
+]
+
+[tasks.run]
+command = "cargo"
+args = ["run"]
