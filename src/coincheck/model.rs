@@ -1,13 +1,26 @@
-use serde::Deserialize;
+use crate::error;
 use std::collections::HashMap;
 use std::error::Error;
+
+use chrono::DateTime;
+use chrono::FixedOffset;
+use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
 pub enum OrderType {
     Sell,
     Buy,
 }
+
 impl OrderType {
+    pub fn parse(t: &str) -> Result<OrderType, Box<dyn Error>> {
+        match t {
+            "sell" => Ok(OrderType::Sell),
+            "buy" => Ok(OrderType::Buy),
+            _ => Err(Box::new(error::Error::ParseError(t.to_owned()))),
+        }
+    }
+
     pub fn to_str(&self) -> &str {
         match self {
             OrderType::Sell => "sell",
@@ -19,6 +32,7 @@ impl OrderType {
 #[derive(Deserialize, Debug)]
 pub struct OrdersRateResponse {
     pub success: bool,
+    pub error: Option<String>,
     pub rate: String,
     pub price: String,
     pub amount: String,
@@ -26,24 +40,56 @@ pub struct OrdersRateResponse {
 
 #[derive(Deserialize, Debug)]
 pub struct OrdersOpensResponse {
-    success: bool,
-    orders: Vec<OpenOrder>,
+    pub success: bool,
+    pub error: Option<String>,
+    pub orders: Vec<OpenOrderResponse>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct OpenOrderResponse {
+    pub id: u64,
+    pub rate: String,
+    pub pending_amount: String,
+    pub pending_market_buy_amount: Option<String>,
+    pub order_type: String,
+    pub stop_loss_rate: Option<String>,
+    pub pair: String,
+    pub created_at: String,
+}
+
+impl OpenOrderResponse {
+    pub fn to_model(&self) -> Result<OpenOrder, Box<dyn Error>> {
+        Ok(OpenOrder {
+            id: self.id,
+            rate: self.rate.parse()?,
+            pending_amount: self.pending_amount.parse()?,
+            pending_market_buy_amount: if let Some(amount) = &self.pending_market_buy_amount {
+                Some(amount.parse()?)
+            } else {
+                None
+            },
+            order_type: OrderType::parse(&self.order_type)?,
+            pair: self.pair.to_owned(),
+            created_at: DateTime::parse_from_rfc3339(&self.created_at)?,
+        })
+    }
 }
 
 #[derive(Deserialize, Debug)]
 pub struct OpenOrder {
-    id: u64,
-    rate: Option<f64>,
-    pending_amount: f64,
-    pending_market_buy_amount: Option<f64>,
-    order_type: OrderType,
-    pair: String,
-    created_at: String,
+    pub id: u64,
+    pub rate: f64,
+    pub pending_amount: f64,
+    pub pending_market_buy_amount: Option<f64>,
+    pub order_type: OrderType,
+    pub pair: String,
+    pub created_at: DateTime<FixedOffset>,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct AccountsBalanceResponse {
     pub success: bool,
+    pub error: Option<String>,
     pub jpy: String,
     pub btc: String,
     pub etc: String,

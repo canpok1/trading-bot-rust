@@ -9,3 +9,9 @@ services:
       - configs/db.env
       - configs/slack.env
       - configs/exchange.env
+    networks:
+      - trading-bot-network
+networks:
+  trading-bot-network:
+    external:
+      name: trading-bot-network
