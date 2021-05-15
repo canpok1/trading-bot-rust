@@ -99,9 +99,10 @@ impl Client {
                 memo: memo,
             })
         } else {
-            Err(Box::new(crate::error::Error::RecordNotFound(
-                "bot_statuses".to_owned(),
-            )))
+            Err(Box::new(crate::error::Error::RecordNotFound {
+                table: "bot_statuses".to_owned(),
+                param: format!("bot_name:{}, type:{}", bot_name, r#type),
+            }))
         }
     }
 }

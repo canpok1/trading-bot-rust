@@ -1,10 +1,32 @@
 use crate::error;
 use std::collections::HashMap;
 use std::error::Error;
+use std::fmt;
 
 use chrono::DateTime;
 use chrono::FixedOffset;
 use serde::Deserialize;
+
+#[derive(Debug)]
+pub struct Pair {
+    pub key: String,
+    pub settlement: String,
+}
+
+impl Pair {
+    pub fn new(p: &str) -> Result<Pair, Box<dyn Error>> {
+        let splited: Vec<&str> = p.split("_").collect();
+        let pair = Pair {
+            key: splited[0].to_string(),
+            settlement: splited[1].to_string(),
+        };
+        Ok(pair)
+    }
+
+    pub fn to_string(&self) -> String {
+        format!("{}_{}", self.key, self.settlement)
+    }
+}
 
 #[derive(Deserialize, Debug)]
 pub enum OrderType {
@@ -159,5 +181,15 @@ pub struct Balance {
 impl Balance {
     pub fn total(&self) -> f64 {
         self.amount + self.reserved
+    }
+}
+
+impl fmt::Display for Balance {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "[amount:{:.3}, reserved:{:.3}]",
+            self.amount, self.reserved
+        )
     }
 }
