@@ -79,4 +79,29 @@ impl Client {
         conn.query_drop(sql)?;
         Ok(())
     }
+
+    pub fn select_bot_status(
+        &self,
+        bot_name: &str,
+        r#type: &str,
+    ) -> Result<BotStatus, Box<dyn Error>> {
+        let mut conn = self.pool.get_conn()?;
+
+        let sql = format!(
+            "SELECT bot_name, type, value, memo FROM bot_statuses WHERE bot_name = '{}' AND type = '{}'",
+            bot_name, r#type,
+        );
+        if let Some((bot_name, r#type, value, memo)) = conn.query_first(sql)? {
+            Ok(BotStatus {
+                bot_name: bot_name,
+                r#type: r#type,
+                value: value,
+                memo: memo,
+            })
+        } else {
+            Err(Box::new(crate::error::Error::RecordNotFound(
+                "bot_statuses".to_owned(),
+            )))
+        }
+    }
 }
