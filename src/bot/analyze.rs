@@ -135,7 +135,7 @@ impl Analyzer {
             let line3 = *line3.unwrap();
 
             // rate1,rate2,rate3 のいずれかがラインを下回ったらチェック打ち切り
-            if !(rate1 < line1 || rate2 < line2 || rate3 < line3) {
+            if rate1 < line1 || rate2 < line2 || rate3 < line3 {
                 return false;
             }
 
