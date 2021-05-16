@@ -3,6 +3,7 @@ use crate::mysql::model::{Market, Markets};
 use chrono::DateTime;
 use chrono::Utc;
 use mysql::prelude::*;
+use mysql::OptsBuilder;
 use mysql::Pool;
 use std::error::Error;
 
@@ -16,20 +17,18 @@ impl Client {
         user: &str,
         password: &str,
         host: &str,
-        port: u64,
+        port: u16,
         database: &str,
     ) -> std::result::Result<Client, Box<dyn Error>> {
-        let url = format!(
-            "mysql://{user}:{password}@{host}:{port}/{database}",
-            user = user,
-            password = password,
-            host = host,
-            port = port,
-            database = database,
-        );
+        let opts = OptsBuilder::new()
+            .user(Some(user))
+            .pass(Some(password))
+            .ip_or_hostname(Some(host))
+            .tcp_port(port)
+            .db_name(Some(database));
 
         Ok(Client {
-            pool: Pool::new(url)?,
+            pool: Pool::new(opts)?,
         })
     }
 

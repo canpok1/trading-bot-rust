@@ -1,9 +1,11 @@
-use crate::coincheck::model::AccountsBalanceResponse;
-use crate::coincheck::model::Balance;
-use crate::coincheck::model::OpenOrder;
-use crate::coincheck::model::OrderType;
-use crate::coincheck::model::OrdersOpensResponse;
-use crate::coincheck::model::OrdersRateResponse;
+use crate::coincheck::model::NewOrder;
+use crate::coincheck::model::{Balance, OpenOrder, Order, OrderType};
+use crate::coincheck::request::OrdersPostRequest;
+use crate::coincheck::response::OrdersCancelStatusGetResponse;
+use crate::coincheck::response::OrdersDeleteResponse;
+use crate::coincheck::response::{
+    BalanceGetResponse, OrdersOpensGetResponse, OrdersPostResponse, OrdersRateGetResponse,
+};
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -13,6 +15,7 @@ use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
 use openssl::sign::Signer;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 const BASE_URL: &str = "https://coincheck.com";
 
@@ -46,16 +49,25 @@ impl Client {
             .query(&params)
             .send()
             .await?
-            .json::<OrdersRateResponse>()
+            .json::<OrdersRateGetResponse>()
             .await?;
         let rate = body.rate.parse::<f64>()?;
         Ok(rate)
     }
 
+    pub async fn post_exchange_orders(&self, req: &NewOrder) -> Result<Order, Box<dyn Error>> {
+        let url = format!("{}{}", BASE_URL, "/api/exchange/orders");
+        let req_body = OrdersPostRequest::new(req)?;
+        let res = self
+            .post_request_with_auth::<OrdersPostRequest, OrdersPostResponse>(&url, req_body)
+            .await?;
+        Ok(res.to_model()?)
+    }
+
     pub async fn get_exchange_orders_opens(&self) -> Result<Vec<OpenOrder>, Box<dyn Error>> {
         let url = format!("{}{}", BASE_URL, "/api/exchange/orders/opens");
         let body = self
-            .get_request_with_auth::<OrdersOpensResponse>(&url, "")
+            .get_request_with_auth::<OrdersOpensGetResponse>(&url)
             .await?;
         let mut res: Vec<OpenOrder> = Vec::new();
         for o in body.orders {
@@ -65,10 +77,29 @@ impl Client {
         Ok(res)
     }
 
+    pub async fn delete_exchange_orders(&self, id: u64) -> Result<u64, Box<dyn Error>> {
+        let url = format!("{}{}{}", BASE_URL, "/api/exchange/orders/", id);
+        let body = self
+            .delete_request_with_auth::<OrdersDeleteResponse>(&url)
+            .await?;
+        Ok(body.id)
+    }
+
+    pub async fn get_exchange_orders_cancel_status(&self, id: u64) -> Result<bool, Box<dyn Error>> {
+        let url: String = format!(
+            "{}{}{}",
+            BASE_URL, "/api/exchange/orders/cancel_status?id=", id
+        );
+        let body = self
+            .get_request_with_auth::<OrdersCancelStatusGetResponse>(&url)
+            .await?;
+        Ok(body.cancel)
+    }
+
     pub async fn get_accounts_balance(&self) -> Result<HashMap<String, Balance>, Box<dyn Error>> {
         let url: String = format!("{}{}", BASE_URL, "/api/accounts/balance");
         let body = self
-            .get_request_with_auth::<AccountsBalanceResponse>(&url, "")
+            .get_request_with_auth::<BalanceGetResponse>(&url)
             .await?;
         Ok(body.to_map()?)
     }
@@ -76,16 +107,70 @@ impl Client {
     async fn get_request_with_auth<T: DeserializeOwned>(
         &self,
         url: &str,
-        body: &str,
     ) -> Result<T, Box<dyn Error>> {
         let nonce = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_millis();
-        let signature = make_signature(nonce, &url, body, &self.secret_key);
+        let signature = make_signature(nonce, &url, "", &self.secret_key);
 
         let res_text = self
             .client
             .get(url)
+            .header("ACCESS-KEY", &self.access_key)
+            .header("ACCESS-NONCE", format!("{}", nonce))
+            .header("ACCESS-SIGNATURE", signature)
+            .send()
+            .await?
+            .text()
+            .await?;
+
+        match serde_json::from_str::<T>(&res_text) {
+            Ok(res) => Ok(res),
+            Err(_) => Err(Box::new(crate::error::Error::ParseError(res_text))),
+        }
+    }
+
+    async fn post_request_with_auth<T, U>(&self, url: &str, body: T) -> Result<U, Box<dyn Error>>
+    where
+        T: Serialize,
+        U: DeserializeOwned,
+    {
+        let nonce = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)?
+            .as_millis();
+        let json = serde_json::to_string(&body)?;
+        let signature = make_signature(nonce, &url, &json, &self.secret_key);
+
+        let res_text = self
+            .client
+            .post(url)
+            .header("ACCESS-KEY", &self.access_key)
+            .header("ACCESS-NONCE", format!("{}", nonce))
+            .header("ACCESS-SIGNATURE", signature)
+            .body(json)
+            .send()
+            .await?
+            .text()
+            .await?;
+
+        match serde_json::from_str::<U>(&res_text) {
+            Ok(res) => Ok(res),
+            Err(_) => Err(Box::new(crate::error::Error::ParseError(res_text))),
+        }
+    }
+
+    async fn delete_request_with_auth<T: DeserializeOwned>(
+        &self,
+        url: &str,
+    ) -> Result<T, Box<dyn Error>> {
+        let nonce = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)?
+            .as_millis();
+        let signature = make_signature(nonce, &url, "", &self.secret_key);
+
+        let res_text = self
+            .client
+            .delete(url)
             .header("ACCESS-KEY", &self.access_key)
             .header("ACCESS-NONCE", format!("{}", nonce))
             .header("ACCESS-SIGNATURE", signature)

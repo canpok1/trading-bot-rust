@@ -1,5 +1,4 @@
 use crate::error;
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
@@ -32,6 +31,8 @@ impl Pair {
 pub enum OrderType {
     Sell,
     Buy,
+    MarketSell,
+    MarketBuy,
 }
 
 impl OrderType {
@@ -39,6 +40,8 @@ impl OrderType {
         match t {
             "sell" => Ok(OrderType::Sell),
             "buy" => Ok(OrderType::Buy),
+            "market_sell" => Ok(OrderType::MarketSell),
+            "market_buy" => Ok(OrderType::MarketBuy),
             _ => Err(Box::new(error::Error::ParseError(t.to_owned()))),
         }
     }
@@ -47,54 +50,76 @@ impl OrderType {
         match self {
             OrderType::Sell => "sell",
             OrderType::Buy => "buy",
+            OrderType::MarketSell => "market_sell",
+            OrderType::MarketBuy => "market_buy",
         }
     }
 }
 
 #[derive(Deserialize, Debug)]
-pub struct OrdersRateResponse {
-    pub success: bool,
-    pub error: Option<String>,
-    pub rate: String,
-    pub price: String,
-    pub amount: String,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct OrdersOpensResponse {
-    pub success: bool,
-    pub error: Option<String>,
-    pub orders: Vec<OpenOrderResponse>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct OpenOrderResponse {
-    pub id: u64,
-    pub rate: String,
-    pub pending_amount: String,
-    pub pending_market_buy_amount: Option<String>,
-    pub order_type: String,
-    pub stop_loss_rate: Option<String>,
+pub struct NewOrder {
     pub pair: String,
-    pub created_at: String,
+    pub order_type: OrderType,
+    pub rate: Option<f64>,
+    pub amount: Option<f64>,
+    pub market_buy_amount: Option<f64>,
+    pub stop_loss_rate: Option<f64>,
 }
 
-impl OpenOrderResponse {
-    pub fn to_model(&self) -> Result<OpenOrder, Box<dyn Error>> {
-        Ok(OpenOrder {
-            id: self.id,
-            rate: self.rate.parse()?,
-            pending_amount: self.pending_amount.parse()?,
-            pending_market_buy_amount: if let Some(amount) = &self.pending_market_buy_amount {
-                Some(amount.parse()?)
-            } else {
-                None
-            },
-            order_type: OrderType::parse(&self.order_type)?,
-            pair: self.pair.to_owned(),
-            created_at: DateTime::parse_from_rfc3339(&self.created_at)?,
-        })
+impl NewOrder {
+    pub fn new_buy_order(pair: &Pair, rate: f64, amount: f64) -> NewOrder {
+        NewOrder {
+            pair: pair.to_string(),
+            order_type: OrderType::Buy,
+            rate: Some(rate),
+            amount: Some(amount),
+            market_buy_amount: None,
+            stop_loss_rate: None,
+        }
     }
+
+    pub fn new_sell_order(pair: &Pair, rate: f64, amount: f64) -> NewOrder {
+        NewOrder {
+            pair: pair.to_string(),
+            order_type: OrderType::Sell,
+            rate: Some(rate),
+            amount: Some(amount),
+            market_buy_amount: None,
+            stop_loss_rate: None,
+        }
+    }
+
+    pub fn new_market_buy_order(pair: &Pair, market_buy_amount: f64) -> NewOrder {
+        NewOrder {
+            pair: pair.to_string(),
+            order_type: OrderType::MarketBuy,
+            rate: None,
+            amount: None,
+            market_buy_amount: Some(market_buy_amount),
+            stop_loss_rate: None,
+        }
+    }
+
+    pub fn new_market_sell_order(pair: &Pair, amount: f64) -> NewOrder {
+        NewOrder {
+            pair: pair.to_string(),
+            order_type: OrderType::MarketSell,
+            rate: None,
+            amount: Some(amount),
+            market_buy_amount: None,
+            stop_loss_rate: None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Order {
+    pub id: u64,
+    pub rate: f64,
+    pub amount: f64,
+    pub order_type: OrderType,
+    pub pair: Pair,
+    pub created_at: DateTime<FixedOffset>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -106,70 +131,6 @@ pub struct OpenOrder {
     pub order_type: OrderType,
     pub pair: String,
     pub created_at: DateTime<FixedOffset>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct AccountsBalanceResponse {
-    pub success: bool,
-    pub error: Option<String>,
-    pub jpy: String,
-    pub btc: String,
-    pub etc: String,
-    pub fct: String,
-    pub mona: String,
-    pub jpy_reserved: String,
-    pub btc_reserved: String,
-    pub etc_reserved: String,
-    pub fct_reserved: String,
-    pub mona_reserved: String,
-}
-
-impl AccountsBalanceResponse {
-    pub fn to_map(&self) -> Result<HashMap<String, Balance>, Box<dyn Error>> {
-        let mut map: HashMap<String, Balance> = HashMap::new();
-
-        map.insert(
-            "jpy".to_owned(),
-            Balance {
-                amount: self.jpy.parse()?,
-                reserved: self.jpy_reserved.parse()?,
-            },
-        );
-
-        map.insert(
-            "btc".to_owned(),
-            Balance {
-                amount: self.btc.parse()?,
-                reserved: self.btc_reserved.parse()?,
-            },
-        );
-
-        map.insert(
-            "etc".to_owned(),
-            Balance {
-                amount: self.etc.parse()?,
-                reserved: self.etc_reserved.parse()?,
-            },
-        );
-
-        map.insert(
-            "fct".to_owned(),
-            Balance {
-                amount: self.fct.parse()?,
-                reserved: self.fct_reserved.parse()?,
-            },
-        );
-
-        map.insert(
-            "mona".to_owned(),
-            Balance {
-                amount: self.mona.parse()?,
-                reserved: self.mona_reserved.parse()?,
-            },
-        );
-
-        Ok(map)
-    }
 }
 
 #[derive(Debug)]

@@ -7,7 +7,7 @@ pub mod mysql;
 use crate::bot::base::Bot;
 use crate::config::Config;
 use env_logger;
-use log::error;
+use log::{error, info};
 
 #[tokio::main]
 async fn main() {
@@ -49,6 +49,14 @@ async fn main() {
             return;
         }
     }
+
+    info!("");
+    info!("bot_name   : {}", config.bot_name);
+    info!("pair       : {}", config.target_pair);
+    info!("interval   : {}sec", config.interval_sec);
+    info!("rate period: {}min", config.rate_period_minutes);
+    info!("demo mode  : {}", config.demo_mode);
+    info!("");
 
     let bot = Bot {
         config: config,
