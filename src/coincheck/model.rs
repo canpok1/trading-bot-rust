@@ -115,8 +115,8 @@ impl NewOrder {
 #[derive(Debug)]
 pub struct Order {
     pub id: u64,
-    pub rate: f64,
-    pub amount: f64,
+    pub rate: Option<f64>,
+    pub amount: Option<f64>,
     pub order_type: OrderType,
     pub pair: Pair,
     pub created_at: DateTime<FixedOffset>,

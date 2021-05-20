@@ -19,26 +19,59 @@ pub struct OrdersRateGetResponse {
 
 // 新規注文
 // POST /api/exchange/orders
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq)]
 pub struct OrdersPostResponse {
-    pub id: u64,
-    pub rate: String,
-    pub amount: String,
-    pub order_type: String,
+    pub success: bool,
+    pub error: Option<String>,
+    pub id: Option<u64>,
+    pub rate: Option<String>,
+    pub amount: Option<String>,
+    pub market_buy_amount: Option<String>,
+    pub order_type: Option<String>,
     pub stop_loss_rate: Option<String>,
-    pub pair: String,
-    pub created_at: String,
+    pub pair: Option<String>,
+    pub created_at: Option<String>,
 }
 
 impl OrdersPostResponse {
     pub fn to_model(&self) -> Result<model::Order, Box<dyn Error>> {
+        let id = self
+            .id
+            .ok_or_else(|| "id is nothing, this field is required")?;
+        let rate = match &self.rate {
+            Some(v) => Some(v.parse()?),
+            None => None,
+        };
+        let amount = match &self.amount {
+            Some(v) => Some(v.parse()?),
+            None => None,
+        };
+        let order_type = model::OrderType::parse(
+            &self
+                .order_type
+                .as_ref()
+                .ok_or_else(|| "order_type is nothing, this field is required")?,
+        )?;
+        let pair = model::Pair::new(
+            &self
+                .pair
+                .as_ref()
+                .ok_or_else(|| "pair is nothing, this field is required")?,
+        )?;
+        let created_at = DateTime::parse_from_rfc3339(
+            &self
+                .created_at
+                .as_ref()
+                .ok_or_else(|| "created_at is nothing, this field is required")?,
+        )?;
+
         Ok(model::Order {
-            id: self.id,
-            rate: self.rate.parse()?,
-            amount: self.amount.parse()?,
-            order_type: model::OrderType::parse(&self.order_type)?,
-            pair: model::Pair::new(&self.pair)?,
-            created_at: DateTime::parse_from_rfc3339(&self.created_at)?,
+            id: id,
+            rate: rate,
+            amount: amount,
+            order_type: order_type,
+            pair: pair,
+            created_at: created_at,
         })
     }
 }
@@ -87,6 +120,7 @@ impl OpenOrder {
 #[derive(Deserialize, Debug)]
 pub struct OrdersDeleteResponse {
     pub success: bool,
+    pub error: Option<String>,
     pub id: u64,
 }
 
@@ -95,6 +129,7 @@ pub struct OrdersDeleteResponse {
 #[derive(Deserialize, Debug)]
 pub struct OrdersCancelStatusGetResponse {
     pub success: bool,
+    pub error: Option<String>,
     pub id: u64,
     pub cancel: bool,
     pub created_at: String,
@@ -163,5 +198,48 @@ impl BalanceGetResponse {
         );
 
         Ok(map)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::coincheck::response::OrdersPostResponse;
+
+    #[test]
+    fn test_deserialize_orders_post_response_1() {
+        let body = "{\"success\":true,\"id\":3416677623,\"amount\":null,\"rate\":null,\"order_type\":\"market_buy\",\"pair\":\"mona_jpy\",\"created_at\":\"2021-05-16T12:38:07.000Z\",\"market_buy_amount\":\"1547.343\",\"stop_loss_rate\":null}".to_owned();
+        let get = serde_json::from_str::<OrdersPostResponse>(&body).unwrap();
+        let want = OrdersPostResponse {
+            success: true,
+            error: None,
+            id: Some(3416677623),
+            rate: None,
+            amount: None,
+            market_buy_amount: Some("1547.343".to_owned()),
+            order_type: Some("market_buy".to_owned()),
+            stop_loss_rate: None,
+            pair: Some("mona_jpy".to_owned()),
+            created_at: Some("2021-05-16T12:38:07.000Z".to_owned()),
+        };
+        assert_eq!(get, want);
+    }
+
+    #[test]
+    fn test_deserialize_orders_post_response_2() {
+        let body = "{\"success\":false,\"error\":\"Rate has invalid tick size\"}";
+        let get = serde_json::from_str::<OrdersPostResponse>(body).unwrap();
+        let want = OrdersPostResponse {
+            success: false,
+            error: Some("Rate has invalid tick size".to_owned()),
+            id: None,
+            rate: None,
+            amount: None,
+            market_buy_amount: None,
+            order_type: None,
+            stop_loss_rate: None,
+            pair: None,
+            created_at: None,
+        };
+        assert_eq!(get, want);
     }
 }

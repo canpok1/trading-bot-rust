@@ -1,4 +1,5 @@
 use crate::coincheck::model;
+use crate::util::to_request_string;
 use serde::Serialize;
 use std::error::Error;
 
@@ -8,32 +9,40 @@ use std::error::Error;
 pub struct OrdersPostRequest {
     pub pair: String,
     pub order_type: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rate: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub amount: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub market_buy_amount: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_loss_rate: Option<String>,
 }
 
 impl OrdersPostRequest {
     pub fn new(order: &model::NewOrder) -> Result<OrdersPostRequest, Box<dyn Error>> {
         let rate = if let Some(v) = order.rate {
-            Some(format!("{:.3}", v))
+            Some(to_request_string(v))
         } else {
             None
         };
         let amount = if let Some(v) = order.amount {
-            Some(format!("{:.3}", v))
+            Some(to_request_string(v))
         } else {
             None
         };
         let market_buy_amount = if let Some(v) = order.market_buy_amount {
-            Some(format!("{:.3}", v))
+            Some(to_request_string(v))
         } else {
             None
         };
 
         Ok(OrdersPostRequest {
-            pair: order.pair.to_owned(),
+            pair: order.pair.to_string(),
             order_type: order.order_type.to_str().to_owned(),
             rate: rate,
             amount: amount,

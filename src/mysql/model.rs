@@ -1,3 +1,5 @@
+use crate::coincheck::model::Pair;
+
 #[derive(Debug)]
 pub struct Market {
     pub pair: String,
@@ -27,4 +29,18 @@ pub struct BotStatus {
     pub r#type: String,
     pub value: f64,
     pub memo: String,
+}
+
+#[derive(Debug)]
+pub enum EventType {
+    Sell,
+    Buy,
+}
+
+#[derive(Debug)]
+pub struct Event {
+    pub pair: Pair,
+    pub event_type: EventType,
+    pub memo: String,
+    pub recorded_at: chrono::NaiveDateTime,
 }

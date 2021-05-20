@@ -22,8 +22,10 @@ pub struct Config {
     // レジスタンスライン幅（下側）の比率
     pub resistance_line_width_ratio_lower: f64,
 
-    // サポートライン作成に必要な期間
-    pub support_line_period: usize,
+    // サポートライン作成に必要な期間（長期）
+    pub support_line_period_long: usize,
+    // サポートライン作成に必要な期間（短期）
+    pub support_line_period_short: usize,
     // サポートライン作成のオフセット
     pub support_line_offset: usize,
     // サポートライン幅（上側）の比率
@@ -37,6 +39,8 @@ pub struct Config {
     pub funds_ratio_per_order: f64,
     // 注文1回あたりの目標利益率（買い注文時のJPYに対する割合を指定）
     pub profit_ratio_per_order: f64,
+    // 注文1回あたりの目標利益率 下降トレンド時（買い注文時のJPYに対する割合を指定）
+    pub profit_ratio_per_order_on_down_trend: f64,
     // 損切り基準レート（約定待ちレートに対する割合を指定）
     pub loss_cut_rate_ratio: f64,
     // スキップ基準レート（約定待ちレートに対する割合を指定）
@@ -52,6 +56,9 @@ pub struct Config {
     pub db_name: String,
     pub db_user_name: String,
     pub db_password: String,
+
+    // Slack関連
+    pub slack_url: String,
 }
 
 impl Config {

@@ -10,6 +10,9 @@ pub enum Error {
 
     #[error("too short, len:{} < required:{}", len, required)]
     TooShort { len: usize, required: usize },
+
+    #[error("response is error, {}, request:{}", message, request)]
+    ErrorResponse { message: String, request: String },
 }
 
 #[derive(Deserialize, Debug)]

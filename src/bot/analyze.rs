@@ -1,9 +1,11 @@
-use crate::coincheck::model::Balance;
-use crate::coincheck::model::OpenOrder;
-use crate::coincheck::model::Pair;
+use crate::coincheck::model::*;
 use crate::error::Error::TooShort;
-use log::debug;
+use crate::Config;
+
 use std::error::Error;
+
+use colored::Colorize;
+use log::debug;
 
 #[derive(Debug)]
 pub struct Analyzer {
@@ -105,7 +107,13 @@ impl Analyzer {
         Ok(make_line(a, b, self.rate_histories.len()))
     }
 
-    pub fn is_upper_rebound(&self, lines: Vec<f64>, width: f64, period: usize) -> bool {
+    pub fn is_upper_rebound(
+        &self,
+        lines: Vec<f64>,
+        width_upper: f64,
+        width_lower: f64,
+        period: usize,
+    ) -> bool {
         let history_size = self.rate_histories.len();
         if history_size < period {
             return false;
@@ -135,7 +143,10 @@ impl Analyzer {
             let line3 = *line3.unwrap();
 
             // rate1,rate2,rate3 のいずれかがラインを下回ったらチェック打ち切り
-            if rate1 < line1 || rate2 < line2 || rate3 < line3 {
+            if rate1 < (line1 - width_lower)
+                || rate2 < (line2 - width_lower)
+                || rate3 < (line3 - width_lower)
+            {
                 return false;
             }
 
@@ -145,7 +156,7 @@ impl Analyzer {
             }
 
             // v字の底がラインから離れすぎていたらスキップ
-            if rate2 > line2 + width {
+            if rate2 > line2 + width_upper {
                 continue;
             }
 
@@ -187,4 +198,148 @@ fn line_fit(x: &Vec<f64>, y: &Vec<f64>) -> (f64, f64) {
 
 fn make_line(a: f64, b: f64, size: usize) -> Vec<f64> {
     (0..size).map(|i| a * (i as f64) + b).collect()
+}
+
+#[derive(Debug)]
+pub struct Signal {
+    pub turned_on: bool,
+    pub name: String,
+    pub detail: String,
+}
+
+impl Signal {
+    pub fn to_string(&self) -> String {
+        format!(
+            "{} {}({})",
+            if self.turned_on {
+                "OK".green()
+            } else {
+                "NG".red()
+            },
+            self.name,
+            self.detail
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct SignalChecker<'a> {
+    pub config: &'a Config,
+}
+
+impl SignalChecker<'_> {
+    pub fn check_resistance_line_breakout(&self, info: &Analyzer) -> Signal {
+        let mut signal = Signal {
+            turned_on: false,
+            name: "resistance line breakout".to_owned(),
+            detail: "".to_owned(),
+        };
+
+        let result = info.resistance_lines(
+            self.config.resistance_line_period,
+            self.config.resistance_line_offset,
+        );
+        if let Err(err) = result {
+            signal.detail = format!("error occured, {}", err);
+            return signal;
+        }
+
+        // レジスタンスライン関連の情報
+        let lines = result.unwrap();
+        let slope = lines[1] - lines[0];
+
+        let width_upper = info.sell_rate * self.config.resistance_line_width_ratio_upper;
+        let width_lower = info.sell_rate * self.config.resistance_line_width_ratio_lower;
+
+        let upper = lines.last().unwrap() + width_upper;
+        let lower = lines.last().unwrap() + width_lower;
+
+        // レジスタンスラインの傾きチェック
+        if slope < 0.0 {
+            signal.detail = format!("slope:{:.3}", slope);
+            return signal;
+        }
+
+        // レジスタンスラインのすぐ上でリバウンドしたかチェック
+        if !info.is_upper_rebound(
+            lines,
+            width_upper,
+            width_lower,
+            self.config.rebound_check_period,
+        ) {
+            signal.detail = "not roll reversal".to_owned();
+            return signal;
+        }
+
+        // 現レートがレジスタンスライン近くかをチェック
+        if info.sell_rate < lower || info.sell_rate > upper {
+            signal.detail = format!(
+                "sell rate:{:.3} is out of range:{:.3}...{:.3}",
+                info.sell_rate, lower, upper,
+            );
+            return signal;
+        }
+
+        // レート上昇中かチェック
+        let before_rate = *info.rate_histories.last().unwrap();
+        if info.sell_rate <= before_rate {
+            signal.detail = format!(
+                "sell rate is not rising, sell rate:{:.3} <= before:{:.3}",
+                info.sell_rate, before_rate,
+            );
+            return signal;
+        }
+
+        signal.turned_on = true;
+        signal
+    }
+
+    // サポートラインがリバウンドしてるならエントリー
+    fn check_support_line_rebound(&self, info: &Analyzer) -> Signal {
+        let mut signal = Signal {
+            turned_on: false,
+            name: "support line rebound".to_owned(),
+            detail: "".to_owned(),
+        };
+
+        let result = info.support_lines(
+            self.config.support_line_period_long,
+            self.config.support_line_offset,
+        );
+        if let Err(err) = result {
+            signal.detail = format!("error occured, {}", err);
+            return signal;
+        }
+
+        // サポートライン関連の情報
+        let lines = result.unwrap();
+        let slope = lines[1] - lines[0];
+        let width_upper = info.sell_rate * self.config.support_line_width_ratio_upper;
+        let width_lower = info.sell_rate * self.config.support_line_width_ratio_lower;
+        let upper = lines.last().unwrap() + width_upper;
+        let lower = lines.last().unwrap() - width_lower;
+
+        // サポートラインのすぐ上でリバウンドしたかチェック
+        if !info.is_upper_rebound(
+            lines,
+            width_upper,
+            width_lower,
+            self.config.rebound_check_period,
+        ) {
+            signal.detail = "is_upper_rebound: false".to_owned();
+            return signal;
+        }
+
+        // 現レートがサポートライン近くかをチェック
+        if info.sell_rate < lower || info.sell_rate > upper {
+            signal.detail = format!(
+                "sell rate:{:.3} is out of range:{:.3}...{:.3}",
+                info.sell_rate, lower, upper,
+            );
+            return signal;
+        }
+
+        signal.turned_on = true;
+        signal
+    }
 }

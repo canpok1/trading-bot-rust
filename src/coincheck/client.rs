@@ -3,9 +3,7 @@ use crate::coincheck::model::{Balance, OpenOrder, Order, OrderType};
 use crate::coincheck::request::OrdersPostRequest;
 use crate::coincheck::response::OrdersCancelStatusGetResponse;
 use crate::coincheck::response::OrdersDeleteResponse;
-use crate::coincheck::response::{
-    BalanceGetResponse, OrdersOpensGetResponse, OrdersPostResponse, OrdersRateGetResponse,
-};
+use crate::coincheck::response::*;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -58,10 +56,18 @@ impl Client {
     pub async fn post_exchange_orders(&self, req: &NewOrder) -> Result<Order, Box<dyn Error>> {
         let url = format!("{}{}", BASE_URL, "/api/exchange/orders");
         let req_body = OrdersPostRequest::new(req)?;
+
         let res = self
             .post_request_with_auth::<OrdersPostRequest, OrdersPostResponse>(&url, req_body)
             .await?;
-        Ok(res.to_model()?)
+        if res.success {
+            Ok(res.to_model()?)
+        } else {
+            Err(Box::new(crate::error::Error::ErrorResponse {
+                message: res.error.unwrap(),
+                request: format!("{:?}", *req),
+            }))
+        }
     }
 
     pub async fn get_exchange_orders_opens(&self) -> Result<Vec<OpenOrder>, Box<dyn Error>> {
@@ -144,6 +150,7 @@ impl Client {
         let res_text = self
             .client
             .post(url)
+            .header("Content-Type", "application/json")
             .header("ACCESS-KEY", &self.access_key)
             .header("ACCESS-NONCE", format!("{}", nonce))
             .header("ACCESS-SIGNATURE", signature)

@@ -3,9 +3,13 @@ pub mod coincheck;
 pub mod config;
 pub mod error;
 pub mod mysql;
+pub mod slack;
+pub mod util;
 
+use crate::bot::analyze::SignalChecker;
 use crate::bot::base::Bot;
 use crate::config::Config;
+use crate::slack::client::TextMessage;
 use env_logger;
 use log::{error, info};
 
@@ -50,18 +54,33 @@ async fn main() {
         }
     }
 
-    info!("");
+    let slack_cli: slack::client::Client;
+    match slack::client::Client::new(&config.slack_url) {
+        Ok(cli) => {
+            slack_cli = cli;
+        }
+        Err(err) => {
+            error!("{}", err);
+            return;
+        }
+    }
+
+    info!("===========================================");
     info!("bot_name   : {}", config.bot_name);
     info!("pair       : {}", config.target_pair);
     info!("interval   : {}sec", config.interval_sec);
     info!("rate period: {}min", config.rate_period_minutes);
     info!("demo mode  : {}", config.demo_mode);
-    info!("");
+    info!("===========================================");
+
+    let signal_checker = SignalChecker { config: &config };
 
     let bot = Bot {
-        config: config,
-        coincheck_client: coincheck_cli,
-        mysql_client: mysql_cli,
+        config: &config,
+        coincheck_client: &coincheck_cli,
+        mysql_client: &mysql_cli,
+        slack_client: &slack_cli,
+        signal_checker: &signal_checker,
     };
 
     loop {

@@ -49,6 +49,8 @@ repeat
                 :キャンセル待ち;
                 :成行売り注文;
             elseif (売り注文) then (yes)
+                :注文キャンセル;
+                :キャンセル待ち;
                 :指値売り注文;
             endif
         endwhile
