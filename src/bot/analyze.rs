@@ -42,7 +42,7 @@ impl Analyzer {
         let mut begin = true;
         let mut a: f64 = 0.0;
         let mut b: f64 = 0.0;
-        loop {
+        for _ in 0..history_size {
             let mut x: Vec<f64> = Vec::new();
             let mut y: Vec<f64> = Vec::new();
             for (i, rate) in self.rate_histories.iter().enumerate() {
@@ -84,7 +84,7 @@ impl Analyzer {
         let mut begin = true;
         let mut a: f64 = 0.0;
         let mut b: f64 = 0.0;
-        loop {
+        for _ in 0..history_size {
             let mut x: Vec<f64> = Vec::new();
             let mut y: Vec<f64> = Vec::new();
             for (i, rate) in self.rate_histories.iter().enumerate() {
