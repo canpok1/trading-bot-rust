@@ -209,7 +209,16 @@ impl Bot<'_> {
             }
         }
 
-        if !analyzer.has_position() {
+        let has_record = if let Ok(_) = self
+            .mysql_client
+            .select_bot_status(&self.config.bot_name, "total_jpy")
+        {
+            true
+        } else {
+            false
+        };
+
+        if !has_record || !analyzer.has_position() {
             self.mysql_client.upsert_bot_status(&BotStatus {
                 bot_name: self.config.bot_name.to_owned(),
                 r#type: "total_jpy".to_owned(),
