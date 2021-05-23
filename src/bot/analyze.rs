@@ -7,8 +7,65 @@ use std::error::Error;
 use colored::Colorize;
 use log::debug;
 
+// #[derive(Debug)]
+// pub struct TradeInfoBuilder {
+//     pub pair: Option<Pair>,
+//     pub sell_rate: Option<f64>,
+//     pub buy_rate: Option<f64>,
+//     pub balance_key: Option<Balance>,
+//     pub balance_settlement: Option<Balance>,
+//     pub open_orders: Option<Box<Vec<OpenOrder>>>,
+//     pub rate_histories: Option<Vec<f64>>,
+// }
+//
+// impl TradeInfoBuilder {
+//     pub fn new() -> TradeInfoBuilder {
+//         TradeInfoBuilder {
+//             pair: None,
+//             sell_rate: None,
+//             buy_rate: None,
+//             balance_key: None,
+//             balance_settlement: None,
+//             open_orders: None,
+//             rate_histories: None,
+//         }
+//     }
+//
+//     pub fn build(&mut self) -> Result<TradeInfo, Box<dyn Error>> {
+//         let open_orders = *self
+//             .open_orders
+//             .clone()
+//             .ok_or("open_orders is none, it is required field")?;
+//
+//         Ok(TradeInfo {
+//             pair: self
+//                 .pair
+//                 .clone()
+//                 .ok_or("pair is none, it is required field")?,
+//             sell_rate: self
+//                 .sell_rate
+//                 .ok_or("sell_rate is none, it is required field")?,
+//             buy_rate: self
+//                 .buy_rate
+//                 .ok_or("buy_rate is none, it is required field")?,
+//             balance_key: self
+//                 .balance_key
+//                 .clone()
+//                 .ok_or("balance_key is none, it is required field")?,
+//             balance_settlement: self
+//                 .balance_settlement
+//                 .clone()
+//                 .ok_or("balance_settlement is none, it is required field")?,
+//             open_orders: open_orders,
+//             rate_histories: self
+//                 .rate_histories
+//                 .ok_or("rate_histories is none, it is required field")?,
+//         })
+//     }
+// }
+
 #[derive(Debug)]
-pub struct Analyzer {
+pub struct TradeInfo {
     pub pair: Pair,
     pub sell_rate: f64,
     pub buy_rate: f64,
@@ -18,7 +75,7 @@ pub struct Analyzer {
     pub rate_histories: Vec<f64>,
 }
 
-impl Analyzer {
+impl TradeInfo {
     pub fn calc_total_balance_jpy(&self) -> f64 {
         self.balance_key.total() * self.sell_rate + self.balance_settlement.total()
     }
@@ -228,7 +285,7 @@ pub struct SignalChecker<'a> {
 }
 
 impl SignalChecker<'_> {
-    pub fn check_resistance_line_breakout(&self, info: &Analyzer) -> Signal {
+    pub fn check_resistance_line_breakout(&self, info: &TradeInfo) -> Signal {
         let mut signal = Signal {
             turned_on: false,
             name: "resistance line breakout".to_owned(),
@@ -295,7 +352,7 @@ impl SignalChecker<'_> {
     }
 
     // サポートラインがリバウンドしてるならエントリー
-    fn check_support_line_rebound(&self, info: &Analyzer) -> Signal {
+    fn check_support_line_rebound(&self, info: &TradeInfo) -> Signal {
         let mut signal = Signal {
             turned_on: false,
             name: "support line rebound".to_owned(),

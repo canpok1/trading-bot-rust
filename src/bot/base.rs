@@ -1,4 +1,5 @@
-use crate::bot::analyze::{Analyzer, SignalChecker};
+use crate::bot::analyze::{SignalChecker, TradeInfo};
+use crate::bot::model::NotifyParam;
 use crate::bot::model::{ActionType, EntryParam, LossCutParam, SellParam};
 use crate::coincheck;
 use crate::coincheck::model::{Balance, NewOrder, OpenOrder, OrderType, Pair};
@@ -53,7 +54,8 @@ impl Bot<'_> {
         Ok(())
     }
 
-    async fn fetch(&self) -> Result<Analyzer, Box<dyn Error>> {
+    async fn fetch(&self) -> Result<TradeInfo, Box<dyn Error>> {
+        let pair = Pair::new(&self.config.target_pair)?;
         let sell_rate = self
             .coincheck_client
             .get_exchange_orders_rate(OrderType::Sell, &self.config.target_pair)
@@ -64,42 +66,45 @@ impl Bot<'_> {
             .await?;
 
         let balances = self.coincheck_client.get_accounts_balance().await?;
+
         let key = self.config.key_currency();
         let balance_key = balances
             .get(&key)
             .ok_or(format!("balance {} is empty", key))?;
+        let balance_key = Balance {
+            amount: balance_key.amount,
+            reserved: balance_key.reserved,
+        };
 
         let settlement = self.config.settlement_currency();
         let balance_settlement = balances
             .get(&settlement)
             .ok_or(format!("balance {} is empty", settlement))?;
+        let balance_settlement = Balance {
+            amount: balance_settlement.amount,
+            reserved: balance_settlement.reserved,
+        };
 
         let begin = Utc::now() - Duration::minutes(self.config.rate_period_minutes);
         let markets = self
             .mysql_client
             .select_markets(&self.config.target_pair, begin)?;
+        let rate_histories = markets.rate_histories();
 
         let open_orders = self.coincheck_client.get_exchange_orders_opens().await?;
 
-        let analyzer = Analyzer {
-            pair: Pair::new(&self.config.target_pair)?,
+        Ok(TradeInfo {
+            pair: pair,
             sell_rate: sell_rate,
             buy_rate: buy_rate,
-            balance_key: Balance {
-                amount: balance_key.amount,
-                reserved: balance_key.reserved,
-            },
-            balance_settlement: Balance {
-                amount: balance_settlement.amount,
-                reserved: balance_settlement.reserved,
-            },
+            balance_key: balance_key,
+            balance_settlement: balance_settlement,
             open_orders: open_orders,
-            rate_histories: markets.rate_histories(),
-        };
-        Ok(analyzer)
+            rate_histories: rate_histories,
+        })
     }
 
-    fn upsert(&self, analyzer: &Analyzer) -> Result<(), Box<dyn Error>> {
+    fn upsert(&self, analyzer: &TradeInfo) -> Result<(), Box<dyn Error>> {
         let open_orders: Vec<&OpenOrder> = analyzer
             .open_orders
             .iter()
@@ -209,20 +214,20 @@ impl Bot<'_> {
             }
         }
 
-        let has_record = if let Ok(_) = self
+        let total_balance_jpy = analyzer.calc_total_balance_jpy();
+        let total_jpy = match self
             .mysql_client
             .select_bot_status(&self.config.bot_name, "total_jpy")
         {
-            true
-        } else {
-            false
+            Ok(v) => v.value,
+            Err(_) => 0.0,
         };
 
-        if !has_record || !analyzer.has_position() {
+        if !analyzer.has_position() || total_jpy < total_balance_jpy {
             self.mysql_client.upsert_bot_status(&BotStatus {
                 bot_name: self.config.bot_name.to_owned(),
                 r#type: "total_jpy".to_owned(),
-                value: analyzer.calc_total_balance_jpy(),
+                value: total_balance_jpy,
                 memo: "残高（JPY）".to_owned(),
             })?;
         }
@@ -230,7 +235,7 @@ impl Bot<'_> {
         Ok(())
     }
 
-    fn make_params(&self, analyzer: &Analyzer) -> Result<Vec<ActionType>, Box<dyn Error>> {
+    fn make_params(&self, analyzer: &TradeInfo) -> Result<Vec<ActionType>, Box<dyn Error>> {
         let mut params: Vec<ActionType> = Vec::new();
 
         if let Some(action_type) = self.check_unused_coin(analyzer)? {
@@ -257,8 +262,11 @@ impl Bot<'_> {
         Ok(params)
     }
 
-    // 未使用コインが一定以上なら売り注文
-    fn check_unused_coin(&self, analyzer: &Analyzer) -> Result<Option<ActionType>, Box<dyn Error>> {
+    // 未使用コインが一定以上なら通知
+    fn check_unused_coin(
+        &self,
+        analyzer: &TradeInfo,
+    ) -> Result<Option<ActionType>, Box<dyn Error>> {
         let border = 1.0;
         if analyzer.balance_key.amount < border {
             info!(
@@ -274,32 +282,22 @@ impl Bot<'_> {
             format!("{:.3}", border).yellow(),
         );
 
-        let used_jpy = self.calc_used_jpy(analyzer)?;
-        let profit_jpy = used_jpy * self.config.profit_ratio_per_order;
-        let amount_coin = analyzer.balance_key.total();
-        let mut rate = (used_jpy + profit_jpy) / amount_coin;
-        if rate < analyzer.sell_rate {
-            rate = analyzer.sell_rate;
-        }
-        let action = ActionType::Sell(SellParam {
-            open_order_ids: analyzer.open_orders.iter().map(|o| o.id).collect(),
-            pair: Pair::new(&self.config.target_pair)?,
-            rate: rate,
-            amount: amount_coin,
-        });
-        debug!(
-            "{}",
-            format!(
-                "used_jpy:{:.3}, profit_jpy:{:.3}, amount_coin:{:.3}, rate:{:.3}",
-                used_jpy, profit_jpy, amount_coin, rate
-            )
-            .blue(),
+        let message = format!(
+            "unused coin exist ({} {})",
+            self.config.key_currency(),
+            analyzer.balance_key.amount
         );
+        let action = ActionType::Notify(NotifyParam {
+            log_message: message.to_string(),
+            slack_message: TextMessage {
+                text: message.to_string(),
+            },
+        });
         Ok(Some(action))
     }
 
     // 未決済注文のレートが現レートの一定以下なら損切り
-    fn check_loss_cut(&self, analyzer: &Analyzer) -> Result<Vec<ActionType>, Box<dyn Error>> {
+    fn check_loss_cut(&self, analyzer: &TradeInfo) -> Result<Vec<ActionType>, Box<dyn Error>> {
         let mut actions = Vec::new();
         for open_order in &analyzer.open_orders {
             match open_order.order_type {
@@ -319,7 +317,7 @@ impl Bot<'_> {
         Ok(actions)
     }
 
-    fn check_entry_skip(&self, analyzer: &Analyzer) -> Result<bool, Box<dyn Error>> {
+    fn check_entry_skip(&self, analyzer: &TradeInfo) -> Result<bool, Box<dyn Error>> {
         // TODO 長期トレンドが下降気味ならreturn
 
         // 未決済注文のレートが現レートとあまり離れてないならスキップ
@@ -369,7 +367,7 @@ impl Bot<'_> {
     // レジスタンスラインがブレイクアウトならエントリー
     fn check_resistance_line_breakout(
         &self,
-        analyzer: &Analyzer,
+        analyzer: &TradeInfo,
     ) -> Result<Option<ActionType>, Box<dyn Error>> {
         let result = analyzer.resistance_lines(
             self.config.resistance_line_period,
@@ -460,7 +458,7 @@ impl Bot<'_> {
     // サポートラインがリバウンドしてるならエントリー
     fn check_support_line_rebound(
         &self,
-        analyzer: &Analyzer,
+        analyzer: &TradeInfo,
     ) -> Result<Option<ActionType>, Box<dyn Error>> {
         let result = analyzer.support_lines(
             self.config.support_line_period_long,
@@ -536,20 +534,6 @@ impl Bot<'_> {
         Ok(buy_jpy)
     }
 
-    fn calc_used_jpy(&self, analyzer: &Analyzer) -> Result<f64, Box<dyn Error>> {
-        let result = self
-            .mysql_client
-            .select_bot_status(&self.config.bot_name, "total_jpy");
-        if let Err(err) = result {
-            warn!("failed to select bot_status, {}", err);
-            return Ok(0.0);
-        }
-
-        let total_jpy = result.unwrap();
-        let used_jpy = total_jpy.value - analyzer.balance_settlement.total();
-        Ok(used_jpy)
-    }
-
     async fn action(&self, tt: Vec<ActionType>) -> Result<(), Box<dyn Error>> {
         if tt.is_empty() {
             info!("skip action (action is empty)");
@@ -610,6 +594,12 @@ impl Bot<'_> {
                         error!("{} entry, {} ({:?})", "failure".red(), err, param);
                     }
                 },
+                ActionType::Notify(param) => {
+                    info!("{}", param.log_message);
+                    if let Err(err) = self.slack_client.post_message(&param.slack_message).await {
+                        error!("{}", err);
+                    }
+                }
             }
         }
         Ok(())

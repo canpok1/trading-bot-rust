@@ -6,7 +6,7 @@ use chrono::DateTime;
 use chrono::FixedOffset;
 use serde::Deserialize;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Pair {
     pub key: String,
     pub settlement: String,
@@ -133,7 +133,7 @@ pub struct OpenOrder {
     pub created_at: DateTime<FixedOffset>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Balance {
     pub amount: f64,
     pub reserved: f64,
