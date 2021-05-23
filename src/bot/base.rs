@@ -326,7 +326,7 @@ impl Bot<'_> {
             debug!(
                 "{}",
                 format!(
-                    "check entry skip (sell rate:{:.3}, lower:{:.3}",
+                    "check entry skip (sell rate:{:.3}, lower:{:.3})",
                     analyzer.sell_rate, lower_rate
                 )
                 .blue()
@@ -520,15 +520,9 @@ impl Bot<'_> {
     }
 
     fn calc_buy_jpy(&self) -> Result<f64, Box<dyn Error>> {
-        let result = self
+        let total_jpy = self
             .mysql_client
-            .select_bot_status(&self.config.bot_name, "total_jpy");
-        if let Err(err) = result {
-            warn!("failed to select bot_status, {}", err);
-            return Ok(0.0);
-        }
-
-        let total_jpy = result.unwrap();
+            .select_bot_status(&self.config.bot_name, "total_jpy")?;
         let buy_jpy = total_jpy.value * self.config.funds_ratio_per_order;
         Ok(buy_jpy)
     }

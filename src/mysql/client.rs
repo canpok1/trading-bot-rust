@@ -1,7 +1,7 @@
 use crate::mysql::model::{BotStatus, Event, EventType, Market, Markets};
 use chrono::DateTime;
 use chrono::Utc;
-use mysql::prelude::*;
+use mysql::prelude::Queryable;
 use mysql::OptsBuilder;
 use mysql::Pool;
 use mysql::PooledConn;
