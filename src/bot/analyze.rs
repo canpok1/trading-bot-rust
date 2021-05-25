@@ -166,7 +166,7 @@ impl TradeInfo {
 
     pub fn is_upper_rebound(
         &self,
-        lines: Vec<f64>,
+        lines: &Vec<f64>,
         width_upper: f64,
         width_lower: f64,
         period: usize,
@@ -319,7 +319,7 @@ impl SignalChecker<'_> {
 
         // レジスタンスラインのすぐ上でリバウンドしたかチェック
         if !info.is_upper_rebound(
-            lines,
+            &lines,
             width_upper,
             width_lower,
             self.config.rebound_check_period,
@@ -370,7 +370,7 @@ impl SignalChecker<'_> {
 
         // サポートライン関連の情報
         let lines = result.unwrap();
-        let slope = lines[1] - lines[0];
+        let _slope = lines[1] - lines[0];
         let width_upper = info.sell_rate * self.config.support_line_width_ratio_upper;
         let width_lower = info.sell_rate * self.config.support_line_width_ratio_lower;
         let upper = lines.last().unwrap() + width_upper;
@@ -378,7 +378,7 @@ impl SignalChecker<'_> {
 
         // サポートラインのすぐ上でリバウンドしたかチェック
         if !info.is_upper_rebound(
-            lines,
+            &lines,
             width_upper,
             width_lower,
             self.config.rebound_check_period,

@@ -400,7 +400,7 @@ impl Bot<'_> {
 
         // レジスタンスラインのすぐ上でリバウンドしたかチェック
         if !analyzer.is_upper_rebound(
-            lines,
+            &lines,
             width_upper,
             width_lower,
             self.config.rebound_check_period,
@@ -460,59 +460,80 @@ impl Bot<'_> {
         &self,
         analyzer: &TradeInfo,
     ) -> Result<Option<ActionType>, Box<dyn Error>> {
+        // サポートライン（長期）関連の情報
         let result = analyzer.support_lines(
             self.config.support_line_period_long,
             self.config.support_line_offset,
         );
         if let Err(err) = result {
-            info!("{} not rebounded on the support line ({})", "NG".red(), err);
+            info!(
+                "{} not rebounded on the support line long ({})",
+                "NG".red(),
+                err
+            );
             return Ok(None);
         }
+        let support_lines_long = result.unwrap();
+        let (is_rebounded_long, is_rebounded_long_info) =
+            self.is_support_line_rebound(analyzer, &support_lines_long);
+        let (on_support_line_long, on_support_line_long_info) =
+            self.is_on_support_line(analyzer, &support_lines_long);
 
-        // サポートライン関連の情報
-        let lines = result.unwrap();
-        let slope = lines[1] - lines[0];
-        let width_upper = analyzer.sell_rate * self.config.support_line_width_ratio_upper;
-        let width_lower = analyzer.sell_rate * self.config.support_line_width_ratio_lower;
-        let upper = lines.last().unwrap() + width_upper;
-        let lower = lines.last().unwrap() - width_lower;
+        // サポートライン（短期）関連の情報
+        let result = analyzer.support_lines(
+            self.config.support_line_period_short,
+            self.config.support_line_offset,
+        );
+        if let Err(err) = result {
+            info!(
+                "{} not rebounded on the support line short ({})",
+                "NG".red(),
+                err
+            );
+            return Ok(None);
+        }
+        let support_lines_short = result.unwrap();
+        let (is_rebounded_short, is_rebounded_short_info) =
+            self.is_support_line_rebound(analyzer, &support_lines_short);
+        let (on_support_line_short, on_support_line_short_info) =
+            self.is_on_support_line(analyzer, &support_lines_short);
 
         // サポートラインのすぐ上でリバウンドしたかチェック
-        if !analyzer.is_upper_rebound(
-            lines,
-            width_upper,
-            width_lower,
-            self.config.rebound_check_period,
-        ) {
+        if !is_rebounded_long && !is_rebounded_short {
             info!(
-                "{} not rebounded on the support line (is_upper_rebound: false)",
-                "NG".red()
+                "{} not rebounded on the support line ({})({})",
+                "NG".red(),
+                is_rebounded_long_info,
+                is_rebounded_short_info,
             );
             return Ok(None);
         }
 
         // 現レートがサポートライン近くかをチェック
-        if analyzer.sell_rate < lower || analyzer.sell_rate > upper {
+        if !on_support_line_long && !on_support_line_short {
             info!(
-                "{} not rebounded on the support line (sell rate:{} is out of range:{})",
+                "{} not rebounded on the support line ({})({})",
                 "NG".red(),
-                format!("{:.3}", analyzer.sell_rate),
-                format!("{:.3}...{:.3}", lower, upper),
+                on_support_line_long_info,
+                on_support_line_short_info,
             );
             return Ok(None);
         }
 
         match self.calc_buy_jpy() {
             Ok(buy_jpy) => {
+                let long_slope = support_lines_long[1] - support_lines_long[0];
+                let short_slope = support_lines_short[1] - support_lines_short[0];
+                let profit_ratio = if long_slope > 0.0 && short_slope > 0.0 {
+                    self.config.profit_ratio_per_order
+                } else {
+                    self.config.profit_ratio_per_order_on_down_trend
+                };
                 info!("{} rebounded on the support line", "OK".green());
                 Ok(Some(ActionType::Entry(EntryParam {
                     pair: Pair::new(&self.config.target_pair)?,
                     amount: buy_jpy,
-                    profit_ratio: if slope < 0.0 {
-                        self.config.profit_ratio_per_order_on_down_trend
-                    } else {
-                        self.config.profit_ratio_per_order
-                    },
+                    profit_ratio: profit_ratio,
                 })))
             }
             Err(err) => {
@@ -524,6 +545,44 @@ impl Bot<'_> {
                 Ok(None)
             }
         }
+    }
+
+    fn is_support_line_rebound(&self, analyzer: &TradeInfo, lines: &Vec<f64>) -> (bool, String) {
+        let width_upper = analyzer.sell_rate * self.config.support_line_width_ratio_upper;
+        let width_lower = analyzer.sell_rate * self.config.support_line_width_ratio_lower;
+        let rebounded = analyzer.is_upper_rebound(
+            lines,
+            width_upper,
+            width_lower,
+            self.config.rebound_check_period,
+        );
+        if rebounded {
+            (rebounded, "is_upper_rebound: true".to_string())
+        } else {
+            (rebounded, "is_upper_rebound: false".to_string())
+        }
+    }
+
+    fn is_on_support_line(&self, analyzer: &TradeInfo, lines: &Vec<f64>) -> (bool, String) {
+        let width_upper = analyzer.sell_rate * self.config.support_line_width_ratio_upper;
+        let width_lower = analyzer.sell_rate * self.config.support_line_width_ratio_lower;
+        let upper = lines.last().unwrap() + width_upper;
+        let lower = lines.last().unwrap() - width_lower;
+        let result = analyzer.sell_rate >= lower && analyzer.sell_rate <= upper;
+        let message = if result {
+            format!(
+                "sell rate:{} is on support line:{}",
+                format!("{:.3}", analyzer.sell_rate),
+                format!("{:.3}...{:.3}", lower, upper)
+            )
+        } else {
+            format!(
+                "sell rate:{} is not on support line:{}",
+                format!("{:.3}", analyzer.sell_rate),
+                format!("{:.3}...{:.3}", lower, upper)
+            )
+        };
+        (result, message)
     }
 
     fn calc_buy_jpy(&self) -> Result<f64, Box<dyn Error>> {
