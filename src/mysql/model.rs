@@ -15,11 +15,16 @@ pub type Markets = Vec<Market>;
 
 pub trait MarketsMethods {
     fn rate_histories(&self) -> Vec<f64>;
+    fn sell_volumes(&self) -> Vec<f64>;
 }
 
 impl MarketsMethods for Markets {
     fn rate_histories(&self) -> Vec<f64> {
         self.iter().map(|m| m.ex_rate_sell).collect()
+    }
+
+    fn sell_volumes(&self) -> Vec<f64> {
+        self.iter().map(|m| m.ex_volume_sell).collect()
     }
 }
 

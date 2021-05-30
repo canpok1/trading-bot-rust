@@ -90,6 +90,7 @@ impl Bot<'_> {
             .mysql_client
             .select_markets(&self.config.target_pair, begin)?;
         let rate_histories = markets.rate_histories();
+        let sell_volumes = markets.sell_volumes();
 
         let open_orders = self.coincheck_client.get_exchange_orders_opens().await?;
 
@@ -101,6 +102,7 @@ impl Bot<'_> {
             balance_settlement: balance_settlement,
             open_orders: open_orders,
             rate_histories: rate_histories,
+            sell_volumes: sell_volumes,
         })
     }
 
@@ -330,14 +332,6 @@ impl Bot<'_> {
             }
             lower_rate *= self.config.entry_skip_rate_ratio;
 
-            debug!(
-                "{}",
-                format!(
-                    "check entry skip (sell rate:{:.3}, lower:{:.3})",
-                    analyzer.sell_rate, lower_rate
-                )
-                .blue()
-            );
             if analyzer.sell_rate > lower_rate {
                 info!(
                     "{} entry check (sell rate:{} > lower_rate:{} )",
@@ -347,6 +341,14 @@ impl Bot<'_> {
                 );
                 return Ok(true);
             }
+            debug!(
+                "{}",
+                format!(
+                    "NOT SKIP entry check (sell rate:{:.3} <= lower:{:.3})",
+                    analyzer.sell_rate, lower_rate
+                )
+                .blue()
+            );
         }
 
         // 残高JPYが足りず注文出せないならスキップ
@@ -360,6 +362,40 @@ impl Bot<'_> {
             );
             return Ok(true);
         }
+        debug!(
+            "{}",
+            format!(
+                "NOT SKIP entry check (jpy:{:.3} >= buy_jpy:{:.3})",
+                analyzer.balance_settlement.amount, buy_jpy
+            )
+            .blue(),
+        );
+
+        // 短期売り出来高が一定以上ならスキップ
+        let mut sell_volume = 0.0;
+        for (i, v) in analyzer.sell_volumes.iter().rev().enumerate() {
+            if i >= self.config.volume_period_short {
+                break;
+            }
+            sell_volume += v;
+        }
+        if sell_volume >= self.config.over_sell_volume_border {
+            info!(
+                "{} entry check (sell_volume:{} >= border:{} )",
+                "SKIP".red(),
+                format!("{:.3}", sell_volume).yellow(),
+                format!("{:.3}", self.config.over_sell_volume_border).yellow(),
+            );
+            return Ok(true);
+        }
+        debug!(
+            "{}",
+            format!(
+                "NOT SKIP entry check (sell_volume:{:.3} < border:{:.3})",
+                sell_volume, self.config.over_sell_volume_border
+            )
+            .blue()
+        );
 
         Ok(false)
     }

@@ -33,6 +33,9 @@ pub struct Config {
     // サポートライン幅（下側）の比率
     pub support_line_width_ratio_lower: f64,
 
+    // 出来高の短期幅
+    pub volume_period_short: usize,
+
     // リバウンドの判定期間（どのくらい過去を見るか）
     pub rebound_check_period: usize,
     // 注文1回に使う資金（残高JPYに対する割合を指定）
@@ -45,6 +48,8 @@ pub struct Config {
     pub loss_cut_rate_ratio: f64,
     // スキップ基準レート（約定待ちレートに対する割合を指定）
     pub entry_skip_rate_ratio: f64,
+    // 売られすぎと判断する売り出来高しきい値
+    pub over_sell_volume_border: f64,
 
     // 取引所関連
     pub exchange_access_key: String,
