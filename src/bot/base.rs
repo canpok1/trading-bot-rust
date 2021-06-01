@@ -91,6 +91,7 @@ impl Bot<'_> {
             .select_markets(&self.config.target_pair, begin)?;
         let rate_histories = markets.rate_histories();
         let sell_volumes = markets.sell_volumes();
+        let buy_volumes = markets.buy_volumes();
 
         let open_orders = self.coincheck_client.get_exchange_orders_opens().await?;
 
@@ -103,6 +104,7 @@ impl Bot<'_> {
             open_orders: open_orders,
             rate_histories: rate_histories,
             sell_volumes: sell_volumes,
+            buy_volumes: buy_volumes,
         })
     }
 
@@ -371,7 +373,7 @@ impl Bot<'_> {
             .blue(),
         );
 
-        // 短期売り出来高が一定以上ならスキップ
+        // 短期の売りと買いの出来高差が一定以上ならスキップ
         let mut sell_volume = 0.0;
         for (i, v) in analyzer.sell_volumes.iter().rev().enumerate() {
             if i >= self.config.volume_period_short {
@@ -379,20 +381,30 @@ impl Bot<'_> {
             }
             sell_volume += v;
         }
-        if sell_volume >= self.config.over_sell_volume_border {
+        let mut buy_volume = 0.0;
+        for (i, v) in analyzer.buy_volumes.iter().rev().enumerate() {
+            if i >= self.config.volume_period_short {
+                break;
+            }
+            buy_volume += v;
+        }
+        let diff = sell_volume - buy_volume;
+        if diff >= self.config.over_sell_volume_border {
             info!(
-                "{} entry check (sell_volume:{} >= border:{} )",
+                "{} entry check (diff:{} >= border:{})(sell:{},buy:{})",
                 "SKIP".red(),
-                format!("{:.3}", sell_volume).yellow(),
+                format!("{:.3}", diff).yellow(),
                 format!("{:.3}", self.config.over_sell_volume_border).yellow(),
+                format!("{:.3}", sell_volume).yellow(),
+                format!("{:.3}", buy_volume).yellow(),
             );
             return Ok(true);
         }
         debug!(
             "{}",
             format!(
-                "NOT SKIP entry check (sell_volume:{:.3} < border:{:.3})",
-                sell_volume, self.config.over_sell_volume_border
+                "NOT SKIP entry check (diff:{:.3} < border:{:.3})(sell:{:.3},buy:{:.3})",
+                diff, self.config.over_sell_volume_border, sell_volume, buy_volume,
             )
             .blue()
         );

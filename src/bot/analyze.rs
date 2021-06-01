@@ -74,6 +74,7 @@ pub struct TradeInfo {
     pub open_orders: Vec<OpenOrder>,
     pub rate_histories: Vec<f64>,
     pub sell_volumes: Vec<f64>,
+    pub buy_volumes: Vec<f64>,
 }
 
 impl TradeInfo {
