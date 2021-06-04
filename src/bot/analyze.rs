@@ -227,6 +227,14 @@ impl TradeInfo {
         }
         false
     }
+
+    pub fn is_rate_rising(&self) -> Option<bool> {
+        if let Some(before_rate) = self.rate_histories.last() {
+            Some(self.sell_rate <= *before_rate)
+        } else {
+            None
+        }
+    }
 }
 
 fn line_fit(x: &Vec<f64>, y: &Vec<f64>) -> (f64, f64) {

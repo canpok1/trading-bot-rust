@@ -24,6 +24,15 @@ pub struct SellParam {
 }
 
 #[derive(Debug)]
+pub struct AvgDownParam {
+    pub pair: Pair,
+    pub market_buy_amount: f64,
+    pub open_order_id: u64,
+    pub open_order_rate: f64,
+    pub open_order_amount: f64,
+}
+
+#[derive(Debug)]
 pub struct NotifyParam {
     pub log_message: String,
     pub slack_message: TextMessage,
@@ -33,5 +42,6 @@ pub enum ActionType {
     Entry(EntryParam),
     LossCut(LossCutParam),
     Sell(SellParam),
+    AvgDown(AvgDownParam),
     Notify(NotifyParam),
 }

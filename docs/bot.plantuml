@@ -26,11 +26,15 @@ repeat
             :行動リストに通知を追加;
         endif
 
-        if (未決済注文のレート) then (現レートとの差が一定以上)
+        if (未決済注文レートと現レートの差) then (損切り幅以上)
             :行動リストに損切りを追加;
+        elseif (未決済注文レートと現レートの差) then (ナンピン幅以上)
+            if (売りレート) then (上昇中)
+                :行動リストにナンピンを追加;
+            endif
         endif
+
         if (未決済注文のレート) then (現レートとの差が一定未満)
-        elseif (残高JPY) then (注文不可)
         elseif (短期売り出来高) then (一定以上)
         elseif (短期レジスタンスライン) then (ブレイクアウト)
             :行動リストにエントリー追加;
@@ -41,21 +45,32 @@ repeat
 
     partition 行動 {
         while (未実施の行動がある？) is (yes)
-            if (エントリー) then (yes)
-                :成行買い注文;
-                :約定待ち;
-                :指値売り注文;
-            elseif (損切り) then (yes)
+            switch (行動)
+            case (エントリー)
+                if (残高JPY) then (買い注文可)
+                    :成行買い注文;
+                    :約定待ち;
+                    :指値売り注文;
+                endif
+            case (損切り)
                 :注文キャンセル;
                 :キャンセル待ち;
                 :成行売り注文;
-            elseif (売り注文) then (yes)
+            case (売り注文)
                 :注文キャンセル;
                 :キャンセル待ち;
                 :指値売り注文;
-            elseif (通知) then (yes)
+            case (ナンピン)
+                if (残高JPY) then (買い注文可)
+                    :成行買い注文;
+                    :約定待ち;
+                    :注文キャンセル;
+                    :キャンセル待ち;
+                    :指値売り注文;
+                endif
+            case (通知)
                 :通知を送信;
-            endif
+            endswitch
         endwhile
     }
 

@@ -44,6 +44,8 @@ pub struct Config {
     pub profit_ratio_per_order: f64,
     // 注文1回あたりの目標利益率 下降トレンド時（買い注文時のJPYに対する割合を指定）
     pub profit_ratio_per_order_on_down_trend: f64,
+    // ナンピン基準レート（約定待ちレートに対する割合を指定）
+    pub avg_down_rate_ratio: f64,
     // 損切り基準レート（約定待ちレートに対する割合を指定）
     pub loss_cut_rate_ratio: f64,
     // スキップ基準レート（約定待ちレートに対する割合を指定）

@@ -1,4 +1,5 @@
 use crate::bot::analyze::{SignalChecker, TradeInfo};
+use crate::bot::model::AvgDownParam;
 use crate::bot::model::NotifyParam;
 use crate::bot::model::{ActionType, EntryParam, LossCutParam, SellParam};
 use crate::coincheck;
@@ -7,6 +8,7 @@ use crate::mysql;
 use crate::mysql::model::{BotStatus, Event, EventType, MarketsMethods};
 use crate::slack;
 use crate::TextMessage;
+use std::collections::HashMap;
 
 use chrono::{Duration, Utc};
 use colored::Colorize;
@@ -67,23 +69,8 @@ impl Bot<'_> {
 
         let balances = self.coincheck_client.get_accounts_balance().await?;
 
-        let key = self.config.key_currency();
-        let balance_key = balances
-            .get(&key)
-            .ok_or(format!("balance {} is empty", key))?;
-        let balance_key = Balance {
-            amount: balance_key.amount,
-            reserved: balance_key.reserved,
-        };
-
-        let settlement = self.config.settlement_currency();
-        let balance_settlement = balances
-            .get(&settlement)
-            .ok_or(format!("balance {} is empty", settlement))?;
-        let balance_settlement = Balance {
-            amount: balance_settlement.amount,
-            reserved: balance_settlement.reserved,
-        };
+        let balance_key = self.fetch_balance_key(&balances)?;
+        let balance_settlement = self.fetch_balance_settlement(&balances)?;
 
         let begin = Utc::now() - Duration::minutes(self.config.rate_period_minutes);
         let markets = self
@@ -105,6 +92,34 @@ impl Bot<'_> {
             rate_histories: rate_histories,
             sell_volumes: sell_volumes,
             buy_volumes: buy_volumes,
+        })
+    }
+
+    fn fetch_balance_key(
+        &self,
+        balances: &HashMap<String, Balance>,
+    ) -> Result<Balance, Box<dyn Error>> {
+        let key = self.config.key_currency();
+        let balance = balances
+            .get(&key)
+            .ok_or(format!("balance {} is empty", key))?;
+        Ok(Balance {
+            amount: balance.amount,
+            reserved: balance.reserved,
+        })
+    }
+
+    fn fetch_balance_settlement(
+        &self,
+        balances: &HashMap<String, Balance>,
+    ) -> Result<Balance, Box<dyn Error>> {
+        let settlement = self.config.settlement_currency();
+        let balance = balances
+            .get(&settlement)
+            .ok_or(format!("balance {} is empty", settlement))?;
+        Ok(Balance {
+            amount: balance.amount,
+            reserved: balance.reserved,
         })
     }
 
@@ -246,7 +261,7 @@ impl Bot<'_> {
             params.push(action_type);
             return Ok(params);
         }
-        let mut action_types = self.check_loss_cut(analyzer)?;
+        let mut action_types = self.check_loss_cut_or_avg_down(analyzer)?;
         if !action_types.is_empty() {
             params.append(&mut action_types);
             return Ok(params);
@@ -273,10 +288,13 @@ impl Bot<'_> {
     ) -> Result<Option<ActionType>, Box<dyn Error>> {
         let border = 1.0;
         if analyzer.balance_key.amount < border {
-            info!(
-                "has not unused coin (coin:{} < border:{})",
-                format!("{:.3}", analyzer.balance_key.amount).yellow(),
-                format!("{:.3}", border).yellow(),
+            debug!(
+                "{}",
+                format!(
+                    "has not unused coin (coin:{:.3} < border:{:.3})",
+                    analyzer.balance_key.amount, border
+                )
+                .blue(),
             );
             return Ok(None);
         }
@@ -300,12 +318,16 @@ impl Bot<'_> {
         Ok(Some(action))
     }
 
-    // 未決済注文のレートが現レートの一定以下なら損切り
-    fn check_loss_cut(&self, analyzer: &TradeInfo) -> Result<Vec<ActionType>, Box<dyn Error>> {
+    // 未決済注文のレートが現レートの一定以下なら損切りorナンピン
+    fn check_loss_cut_or_avg_down(
+        &self,
+        analyzer: &TradeInfo,
+    ) -> Result<Vec<ActionType>, Box<dyn Error>> {
         let mut actions = Vec::new();
         for open_order in &analyzer.open_orders {
             match open_order.order_type {
                 OrderType::Sell => {
+                    // 損切り？
                     let lower = open_order.rate * self.config.loss_cut_rate_ratio;
                     if analyzer.sell_rate < lower {
                         actions.push(ActionType::LossCut(LossCutParam {
@@ -313,6 +335,24 @@ impl Bot<'_> {
                             open_order_id: open_order.id,
                             amount: open_order.pending_amount,
                         }));
+                        continue;
+                    }
+                    // ナンピン？
+                    let lower = open_order.rate * self.config.avg_down_rate_ratio;
+                    let is_riging = if let Some(v) = analyzer.is_rate_rising() {
+                        v
+                    } else {
+                        false
+                    };
+                    if analyzer.sell_rate < lower && is_riging {
+                        actions.push(ActionType::AvgDown(AvgDownParam {
+                            pair: Pair::new(&self.config.target_pair)?,
+                            market_buy_amount: self.calc_buy_jpy()?,
+                            open_order_id: open_order.id,
+                            open_order_rate: open_order.rate,
+                            open_order_amount: open_order.pending_amount,
+                        }));
+                        continue;
                     }
                 }
                 _ => {}
@@ -322,8 +362,6 @@ impl Bot<'_> {
     }
 
     fn check_entry_skip(&self, analyzer: &TradeInfo) -> Result<bool, Box<dyn Error>> {
-        // TODO 長期トレンドが下降気味ならreturn
-
         // 未決済注文のレートが現レートとあまり離れてないならスキップ
         if !analyzer.open_orders.is_empty() {
             let mut lower_rate = 0.0;
@@ -352,26 +390,6 @@ impl Bot<'_> {
                 .blue()
             );
         }
-
-        // 残高JPYが足りず注文出せないならスキップ
-        let buy_jpy = self.calc_buy_jpy()?;
-        if analyzer.balance_settlement.amount < buy_jpy {
-            info!(
-                "{} entry check (jpy:{} < buy_jpy:{} )",
-                "SKIP".red(),
-                format!("{:.3}", analyzer.balance_settlement.amount).yellow(),
-                format!("{:.3}", buy_jpy).yellow(),
-            );
-            return Ok(true);
-        }
-        debug!(
-            "{}",
-            format!(
-                "NOT SKIP entry check (jpy:{:.3} >= buy_jpy:{:.3})",
-                analyzer.balance_settlement.amount, buy_jpy
-            )
-            .blue(),
-        );
 
         // 短期の売りと買いの出来高差が一定以上ならスキップ
         let mut sell_volume = 0.0;
@@ -648,24 +666,29 @@ impl Bot<'_> {
         }
 
         for t in tt.iter() {
+            let balances = self.coincheck_client.get_accounts_balance().await?;
+            let balance_settlement = self.fetch_balance_settlement(&balances)?;
             match t {
-                ActionType::Entry(param) => match self.action_entry(param).await {
-                    Ok(_) => {
-                        info!("{} entry ({:?})", "success".green(), param);
-                    }
-                    Err(err) => {
-                        let message = format!("{} entry, {} ({:?})", "failure".red(), err, param);
-                        error!("{}", message);
-                        if let Err(err) = self
-                            .slack_client
-                            .post_message(&TextMessage { text: message })
-                            .await
-                        {
-                            error!("{}", err);
+                ActionType::Entry(param) => {
+                    match self.action_entry(&balance_settlement, param).await {
+                        Ok(_) => {
+                            info!("{} entry ({:?})", "success".green(), param);
                         }
-                        error!("{} entry, {} ({:?})", "failure".red(), err, param);
+                        Err(err) => {
+                            let message =
+                                format!("{} entry, {} ({:?})", "failure".red(), err, param);
+                            error!("{}", message);
+                            if let Err(err) = self
+                                .slack_client
+                                .post_message(&TextMessage { text: message })
+                                .await
+                            {
+                                error!("{}", err);
+                            }
+                            error!("{} entry, {} ({:?})", "failure".red(), err, param);
+                        }
                     }
-                },
+                }
                 ActionType::LossCut(param) => match self.action_loss_cut(param).await {
                     Ok(_) => {
                         info!("{} loss cut ({:?})", "success".green(), param);
@@ -681,7 +704,7 @@ impl Bot<'_> {
                         {
                             error!("{}", err);
                         }
-                        error!("{} entry, {} ({:?})", "failure".red(), err, param);
+                        error!("{} loss cut, {} ({:?})", "failure".red(), err, param);
                     }
                 },
                 ActionType::Sell(param) => match self.action_sell(param).await {
@@ -698,9 +721,29 @@ impl Bot<'_> {
                         {
                             error!("{}", err);
                         }
-                        error!("{} entry, {} ({:?})", "failure".red(), err, param);
+                        error!("{} sell, {} ({:?})", "failure".red(), err, param);
                     }
                 },
+                ActionType::AvgDown(param) => {
+                    match self.action_avg_down(&balance_settlement, param).await {
+                        Ok(_) => {
+                            info!("{} avg down ({:?})", "success".green(), param);
+                        }
+                        Err(err) => {
+                            let message =
+                                format!("{} avg down, {} ({:?})", "failure".red(), err, param);
+                            error!("{}", message);
+                            if let Err(err) = self
+                                .slack_client
+                                .post_message(&TextMessage { text: message })
+                                .await
+                            {
+                                error!("{}", err);
+                            }
+                            error!("{} avg down, {} ({:?})", "failure".red(), err, param);
+                        }
+                    }
+                }
                 ActionType::Notify(param) => {
                     info!("{}", param.log_message);
                     if let Err(err) = self.slack_client.post_message(&param.slack_message).await {
@@ -712,23 +755,171 @@ impl Bot<'_> {
         Ok(())
     }
 
-    async fn action_entry(&self, param: &EntryParam) -> Result<(), Box<dyn Error>> {
+    async fn action_entry(
+        &self,
+        balance_jpy: &Balance,
+        param: &EntryParam,
+    ) -> Result<(), Box<dyn Error>> {
         if self.config.demo_mode {
             info!("{}", "skip entry as demo mode".green());
             return Ok(());
         }
+        if balance_jpy.amount < param.amount {
+            warn!(
+                "{}",
+                format!(
+                    "skip entry, balance jpy is too little ({:.3} < {:.3})",
+                    balance_jpy.amount, param.amount
+                )
+                .yellow()
+            );
+            return Ok(());
+        }
 
+        // 成行買い注文
+        let amount_coin = self.market_buy(&param.pair, param.amount).await?;
+
+        // 売り注文
+        let used_jpy = param.amount;
+        let profit_jpy = used_jpy * param.profit_ratio;
+        let rate = (used_jpy + profit_jpy) / amount_coin;
+
+        self.sell(&param.pair, rate, amount_coin).await?;
+
+        if let Err(err) = self
+            .slack_client
+            .post_message(&TextMessage {
+                text: format!("entry completed! `{:?}`", param),
+            })
+            .await
+        {
+            warn!(
+                "{}",
+                format!("failed to send message to slack, {}", err).yellow()
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn action_loss_cut(&self, param: &LossCutParam) -> Result<(), Box<dyn Error>> {
+        if self.config.demo_mode {
+            info!("{}", "skip loss cut as demo mode".green());
+            return Ok(());
+        }
+
+        // 注文キャンセル
+        self.cancel(param.open_order_id).await?;
+
+        // 成行売り注文
+        self.market_sell(&param.pair, param.amount).await?;
+
+        if let Err(err) = self
+            .slack_client
+            .post_message(&TextMessage {
+                text: format!("losscut completed! `{:?}`", param),
+            })
+            .await
+        {
+            warn!(
+                "{}",
+                format!("failed to send message to slack, {}", err).yellow()
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn action_sell(&self, param: &SellParam) -> Result<(), Box<dyn Error>> {
+        if self.config.demo_mode {
+            info!("{}", "skip sell as demo mode".green());
+            return Ok(());
+        }
+
+        // 注文キャンセル
+        for id in param.open_order_ids.iter() {
+            self.cancel(*id).await?;
+        }
+
+        self.sell(&param.pair, param.rate, param.amount).await?;
+
+        if let Err(err) = self
+            .slack_client
+            .post_message(&TextMessage {
+                text: format!("sell completed! `{:?}`", param),
+            })
+            .await
+        {
+            warn!(
+                "{}",
+                format!("failed to send message to slack, {}", err).yellow()
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn action_avg_down(
+        &self,
+        balance_jpy: &Balance,
+        param: &AvgDownParam,
+    ) -> Result<(), Box<dyn Error>> {
+        if self.config.demo_mode {
+            info!("{}", "skip avg down as demo mode".green());
+            return Ok(());
+        }
+        if balance_jpy.amount < param.market_buy_amount {
+            warn!(
+                "{}",
+                format!(
+                    "skip avg down, balance jpy is too little ({:.3} < {:.3})",
+                    balance_jpy.amount, param.market_buy_amount
+                )
+                .yellow()
+            );
+            return Ok(());
+        }
+
+        // 成行買い注文
+        let amount_new_coin = self
+            .market_buy(&param.pair, param.market_buy_amount)
+            .await?;
+
+        self.cancel(param.open_order_id).await?;
+
+        let amount_coin = param.open_order_amount + amount_new_coin;
+        let rate = ((param.open_order_amount * param.open_order_rate) + param.market_buy_amount)
+            / amount_coin;
+        self.sell(&param.pair, rate, amount_coin).await?;
+
+        if let Err(err) = self
+            .slack_client
+            .post_message(&TextMessage {
+                text: format!("avg down completed! `{:?}`", param),
+            })
+            .await
+        {
+            warn!(
+                "{}",
+                format!("failed to send message to slack, {}", err).yellow()
+            );
+        }
+
+        Ok(())
+    }
+
+    // 成行買い注文
+    async fn market_buy(&self, pair: &Pair, amount_jpy: f64) -> Result<f64, Box<dyn Error>> {
         // 買い注文で増加したコイン数を算出するため最初の残高を保存しておく
         let coin_amount_begin = {
             let balances = self.coincheck_client.get_accounts_balance().await?;
-            let balance = balances.get(&param.pair.key).unwrap();
+            let balance = balances.get(&pair.key).unwrap();
             balance.amount
         };
 
-        // 成行買い注文
         debug!("{}", "send market buy order".blue());
         let buy_order = {
-            let req = NewOrder::new_market_buy_order(&param.pair, param.amount);
+            let req = NewOrder::new_market_buy_order(pair, amount_jpy);
             self.coincheck_client.post_exchange_orders(&req).await?
         };
 
@@ -755,7 +946,7 @@ impl Bot<'_> {
             event_type: EventType::Buy,
             memo: format!(
                 "market buy completed! `{} {}`",
-                param.pair.to_string(),
+                pair.to_string(),
                 match buy_order.amount {
                     Some(v) => format!("{}", v),
                     None => "".to_owned(),
@@ -774,7 +965,7 @@ impl Bot<'_> {
         debug!("{}", "wait update balance ...".blue());
         let amount_coin = loop {
             let balances = self.coincheck_client.get_accounts_balance().await?;
-            let balance = balances.get(&param.pair.key).unwrap();
+            let balance = balances.get(&pair.key).unwrap();
             let amount = balance.amount - coin_amount_begin;
             if amount > 0.0 {
                 break amount;
@@ -783,17 +974,50 @@ impl Bot<'_> {
             thread::sleep(time::Duration::from_secs(1));
         };
 
-        // 売り注文
-        let used_jpy = param.amount;
-        let profit_jpy = used_jpy * param.profit_ratio;
-        let rate = (used_jpy + profit_jpy) / amount_coin;
-        let req = NewOrder::new_sell_order(&param.pair, rate, amount_coin);
+        Ok(amount_coin)
+    }
+
+    // 成行売り注文
+    async fn market_sell(&self, pair: &Pair, amount_coin: f64) -> Result<(), Box<dyn Error>> {
+        debug!("{}", "send market sell order".blue());
+        let new_order = NewOrder::new_market_sell_order(pair, amount_coin);
+        let order = self
+            .coincheck_client
+            .post_exchange_orders(&new_order)
+            .await?;
+
+        let event = Event {
+            pair: order.pair,
+            event_type: EventType::Sell,
+            memo: format!(
+                "market sell completed! `{} {}`",
+                pair.to_string(),
+                match order.amount {
+                    Some(v) => format!("{:.3}", v),
+                    None => "".to_owned(),
+                },
+            ),
+            recorded_at: order.created_at.naive_utc(),
+        };
+        if let Err(err) = self.mysql_client.insert_event(&event) {
+            warn!(
+                "{}",
+                format!("failed to insert event, {} event = {:.?}", err, event).yellow()
+            );
+        }
+
+        Ok(())
+    }
+
+    // 指値売り注文
+    async fn sell(&self, pair: &Pair, rate: f64, amount_coin: f64) -> Result<(), Box<dyn Error>> {
+        let req = NewOrder::new_sell_order(pair, rate, amount_coin);
         let sell_order = self.coincheck_client.post_exchange_orders(&req).await?;
         debug!(
             "{}",
             format!(
-                "send sell order (used_jpy:{:.3}, profit_jpy:{:.3}, amount_coin:{:.3}, rate:{:.3})",
-                used_jpy, profit_jpy, amount_coin, rate
+                "send sell order (amount_coin:{:.3}, rate:{:.3})",
+                amount_coin, rate
             )
             .blue(),
         );
@@ -803,7 +1027,7 @@ impl Bot<'_> {
             event_type: EventType::Sell,
             memo: format!(
                 "sell completed! `{} rate:{} amount:{}`",
-                param.pair.to_string(),
+                pair.to_string(),
                 match sell_order.rate {
                     Some(v) => format!("{:.3}", v),
                     None => "".to_owned(),
@@ -821,33 +1045,16 @@ impl Bot<'_> {
                 format!("failed to insert event, {} event = {:.?}", err, event).yellow()
             );
         }
-        if let Err(err) = self
-            .slack_client
-            .post_message(&TextMessage {
-                text: format!("entry completed! `{:?}`", param),
-            })
-            .await
-        {
-            warn!(
-                "{}",
-                format!("failed to send message to slack, {}", err).yellow()
-            );
-        }
 
         Ok(())
     }
 
-    async fn action_loss_cut(&self, param: &LossCutParam) -> Result<(), Box<dyn Error>> {
-        if self.config.demo_mode {
-            info!("{}", "skip loss cut as demo mode".green());
-            return Ok(());
-        }
-
-        // 注文キャンセル
+    // 注文キャンセル
+    async fn cancel(&self, open_order_id: u64) -> Result<(), Box<dyn Error>> {
         debug!("{}", "cancel".blue());
         let cancel_id = self
             .coincheck_client
-            .delete_exchange_orders(param.open_order_id)
+            .delete_exchange_orders(open_order_id)
             .await?;
 
         // キャンセル待ち
@@ -862,113 +1069,6 @@ impl Bot<'_> {
             }
             // キャンセル待ちのため1秒待つ
             thread::sleep(time::Duration::from_secs(1));
-        }
-
-        // 成行売り注文
-        debug!("{}", "send market sell order".blue());
-        let new_order = NewOrder::new_market_sell_order(&param.pair, param.amount);
-        let order = self
-            .coincheck_client
-            .post_exchange_orders(&new_order)
-            .await?;
-
-        let event = Event {
-            pair: order.pair,
-            event_type: EventType::Sell,
-            memo: format!(
-                "market sell completed! `{} {}`",
-                param.pair.to_string(),
-                match order.amount {
-                    Some(v) => format!("{:.3}", v),
-                    None => "".to_owned(),
-                },
-            ),
-            recorded_at: order.created_at.naive_utc(),
-        };
-        if let Err(err) = self.mysql_client.insert_event(&event) {
-            warn!(
-                "{}",
-                format!("failed to insert event, {} event = {:.?}", err, event).yellow()
-            );
-        }
-
-        if let Err(err) = self
-            .slack_client
-            .post_message(&TextMessage {
-                text: format!("losscut completed! `{:?}`", param),
-            })
-            .await
-        {
-            warn!(
-                "{}",
-                format!("failed to send message to slack, {}", err).yellow()
-            );
-        }
-
-        Ok(())
-    }
-
-    async fn action_sell(&self, param: &SellParam) -> Result<(), Box<dyn Error>> {
-        if self.config.demo_mode {
-            info!("{}", "skip sell as demo mode".green());
-            return Ok(());
-        }
-
-        // 注文キャンセル
-        for id in param.open_order_ids.iter() {
-            debug!("{}", "cancel".blue());
-            let cancel_id = self.coincheck_client.delete_exchange_orders(*id).await?;
-
-            // キャンセル待ち
-            debug!("{}", "wait cancel completed ...".blue());
-            loop {
-                let canceled = self
-                    .coincheck_client
-                    .get_exchange_orders_cancel_status(cancel_id)
-                    .await?;
-                if canceled {
-                    break;
-                }
-                // キャンセル待ちのため1秒待つ
-                thread::sleep(time::Duration::from_secs(1));
-            }
-        }
-
-        debug!("{}", "post sell order".blue());
-        let req = NewOrder::new_sell_order(&param.pair, param.rate, param.amount);
-        let order = self.coincheck_client.post_exchange_orders(&req).await?;
-
-        let message = format!(
-            "sell completed!!! `{} rate:{:.3} amount:{:.3}`",
-            param.pair.to_string(),
-            param.rate,
-            param.amount
-        );
-
-        let event = Event {
-            pair: order.pair,
-            event_type: EventType::Sell,
-            memo: message.to_owned(),
-            recorded_at: order.created_at.naive_utc(),
-        };
-        if let Err(err) = self.mysql_client.insert_event(&event) {
-            warn!(
-                "{}",
-                format!("failed to insert event, {} event = {:.?}", err, event).yellow()
-            );
-        }
-
-        if let Err(err) = self
-            .slack_client
-            .post_message(&TextMessage {
-                text: format!("sell completed! `{:?}`", param),
-            })
-            .await
-        {
-            warn!(
-                "{}",
-                format!("failed to send message to slack, {}", err).yellow()
-            );
         }
 
         Ok(())
