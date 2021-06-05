@@ -789,7 +789,10 @@ impl Bot<'_> {
         if let Err(err) = self
             .slack_client
             .post_message(&TextMessage {
-                text: format!("entry completed! `{:?}`", param),
+                text: format!(
+                    "entry completed!\nrate:`{:.3}`\namount:`{:.3}`\nparam:`{:?}`",
+                    rate, amount_coin, param
+                ),
             })
             .await
         {
@@ -895,7 +898,10 @@ impl Bot<'_> {
         if let Err(err) = self
             .slack_client
             .post_message(&TextMessage {
-                text: format!("avg down completed! `{:?}`", param),
+                text: format!(
+                    "avg down completed!\nrate:`{:.3}`\namount:`{:.3}`\nparam:`{:?}`",
+                    rate, amount_coin, param
+                ),
             })
             .await
         {
