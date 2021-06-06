@@ -871,12 +871,14 @@ impl Bot<'_> {
             info!("{}", "skip avg down as demo mode".green());
             return Ok(());
         }
-        if balance_jpy.amount < param.market_buy_amount {
+        // ナンピンすると余裕なくなるならスキップする
+        let required = param.market_buy_amount * 3.0;
+        if balance_jpy.amount < required {
             warn!(
                 "{}",
                 format!(
                     "skip avg down, balance jpy is too little ({:.3} < {:.3})",
-                    balance_jpy.amount, param.market_buy_amount
+                    balance_jpy.amount, required
                 )
                 .yellow()
             );
