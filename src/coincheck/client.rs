@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::time::SystemTime;
 
+use async_trait::async_trait;
 use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
 use openssl::sign::Signer;
@@ -17,24 +18,35 @@ use serde::Serialize;
 
 const BASE_URL: &str = "https://coincheck.com";
 
+#[async_trait]
+pub trait Client {
+    async fn get_exchange_orders_rate(
+        &self,
+        t: OrderType,
+        pair: &str,
+    ) -> Result<f64, Box<dyn Error>>;
+
+    async fn post_exchange_orders(&self, req: &NewOrder) -> Result<Order, Box<dyn Error>>;
+
+    async fn get_exchange_orders_opens(&self) -> Result<Vec<OpenOrder>, Box<dyn Error>>;
+
+    async fn delete_exchange_orders(&self, id: u64) -> Result<u64, Box<dyn Error>>;
+
+    async fn get_exchange_orders_cancel_status(&self, id: u64) -> Result<bool, Box<dyn Error>>;
+
+    async fn get_accounts_balance(&self) -> Result<HashMap<String, Balance>, Box<dyn Error>>;
+}
+
 #[derive(Debug)]
-pub struct Client {
+pub struct DefaultClient {
     client: reqwest::Client,
     access_key: String,
     secret_key: String,
 }
 
-impl Client {
-    pub fn new(access_key: &str, secret_key: &str) -> Result<Client, reqwest::Error> {
-        let client = reqwest::Client::builder().build()?;
-        Ok(Client {
-            client: client,
-            access_key: access_key.to_string(),
-            secret_key: secret_key.to_string(),
-        })
-    }
-
-    pub async fn get_exchange_orders_rate(
+#[async_trait]
+impl Client for DefaultClient {
+    async fn get_exchange_orders_rate(
         &self,
         t: OrderType,
         pair: &str,
@@ -53,7 +65,7 @@ impl Client {
         Ok(rate)
     }
 
-    pub async fn post_exchange_orders(&self, req: &NewOrder) -> Result<Order, Box<dyn Error>> {
+    async fn post_exchange_orders(&self, req: &NewOrder) -> Result<Order, Box<dyn Error>> {
         let url = format!("{}{}", BASE_URL, "/api/exchange/orders");
         let req_body = OrdersPostRequest::new(req)?;
 
@@ -70,7 +82,7 @@ impl Client {
         }
     }
 
-    pub async fn get_exchange_orders_opens(&self) -> Result<Vec<OpenOrder>, Box<dyn Error>> {
+    async fn get_exchange_orders_opens(&self) -> Result<Vec<OpenOrder>, Box<dyn Error>> {
         let url = format!("{}{}", BASE_URL, "/api/exchange/orders/opens");
         let body = self
             .get_request_with_auth::<OrdersOpensGetResponse>(&url)
@@ -83,7 +95,7 @@ impl Client {
         Ok(res)
     }
 
-    pub async fn delete_exchange_orders(&self, id: u64) -> Result<u64, Box<dyn Error>> {
+    async fn delete_exchange_orders(&self, id: u64) -> Result<u64, Box<dyn Error>> {
         let url = format!("{}{}{}", BASE_URL, "/api/exchange/orders/", id);
         let body = self
             .delete_request_with_auth::<OrdersDeleteResponse>(&url)
@@ -91,7 +103,7 @@ impl Client {
         Ok(body.id)
     }
 
-    pub async fn get_exchange_orders_cancel_status(&self, id: u64) -> Result<bool, Box<dyn Error>> {
+    async fn get_exchange_orders_cancel_status(&self, id: u64) -> Result<bool, Box<dyn Error>> {
         let url: String = format!(
             "{}{}{}",
             BASE_URL, "/api/exchange/orders/cancel_status?id=", id
@@ -102,12 +114,23 @@ impl Client {
         Ok(body.cancel)
     }
 
-    pub async fn get_accounts_balance(&self) -> Result<HashMap<String, Balance>, Box<dyn Error>> {
+    async fn get_accounts_balance(&self) -> Result<HashMap<String, Balance>, Box<dyn Error>> {
         let url: String = format!("{}{}", BASE_URL, "/api/accounts/balance");
         let body = self
             .get_request_with_auth::<BalanceGetResponse>(&url)
             .await?;
         Ok(body.to_map()?)
+    }
+}
+
+impl DefaultClient {
+    pub fn new(access_key: &str, secret_key: &str) -> Result<DefaultClient, reqwest::Error> {
+        let client = reqwest::Client::builder().build()?;
+        Ok(DefaultClient {
+            client: client,
+            access_key: access_key.to_string(),
+            secret_key: secret_key.to_string(),
+        })
     }
 
     async fn get_request_with_auth<T: DeserializeOwned>(

@@ -1,10 +1,16 @@
 use std::error::Error;
 
+use async_trait::async_trait;
 use log::debug;
 use serde::Serialize;
 
+#[async_trait]
+pub trait Client {
+    async fn post_message(&self, message: &TextMessage) -> Result<(), Box<dyn Error>>;
+}
+
 #[derive(Debug)]
-pub struct Client {
+pub struct DefaultClient {
     client: reqwest::Client,
     url: String,
 }
@@ -14,16 +20,19 @@ pub struct TextMessage {
     pub text: String,
 }
 
-impl Client {
-    pub fn new(url: &str) -> Result<Client, Box<dyn Error>> {
+impl DefaultClient {
+    pub fn new(url: &str) -> Result<DefaultClient, Box<dyn Error>> {
         let client = reqwest::Client::builder().build()?;
-        Ok(Client {
+        Ok(DefaultClient {
             client: client,
             url: url.to_owned(),
         })
     }
+}
 
-    pub async fn post_message(&self, message: &TextMessage) -> Result<(), Box<dyn Error>> {
+#[async_trait]
+impl Client for DefaultClient {
+    async fn post_message(&self, message: &TextMessage) -> Result<(), Box<dyn Error>> {
         let res = self
             .client
             .post(&self.url)

@@ -7,19 +7,35 @@ use mysql::Pool;
 use mysql::PooledConn;
 use std::error::Error;
 
+pub trait Client {
+    fn get_conn(&self) -> Result<PooledConn, Box<dyn Error>>;
+
+    fn select_markets(
+        &self,
+        pair: &str,
+        begin: DateTime<Utc>,
+    ) -> std::result::Result<Markets, Box<dyn Error>>;
+
+    fn upsert_bot_status(&self, s: &BotStatus) -> Result<(), Box<dyn Error>>;
+
+    fn select_bot_status(&self, bot_name: &str, r#type: &str) -> Result<BotStatus, Box<dyn Error>>;
+
+    fn insert_event(&self, event: &Event) -> Result<(), Box<dyn Error>>;
+}
+
 #[derive(Debug)]
-pub struct Client {
+pub struct DefaultClient {
     pool: Pool,
 }
 
-impl Client {
+impl DefaultClient {
     pub fn new(
         user: &str,
         password: &str,
         host: &str,
         port: u16,
         database: &str,
-    ) -> std::result::Result<Client, Box<dyn Error>> {
+    ) -> std::result::Result<DefaultClient, Box<dyn Error>> {
         let opts = OptsBuilder::new()
             .user(Some(user))
             .pass(Some(password))
@@ -27,11 +43,13 @@ impl Client {
             .tcp_port(port)
             .db_name(Some(database));
 
-        Ok(Client {
+        Ok(DefaultClient {
             pool: Pool::new(opts)?,
         })
     }
+}
 
+impl Client for DefaultClient {
     fn get_conn(&self) -> Result<PooledConn, Box<dyn Error>> {
         match self.pool.get_conn() {
             Ok(v) => Ok(v),
@@ -39,7 +57,7 @@ impl Client {
         }
     }
 
-    pub fn select_markets(
+    fn select_markets(
         &self,
         pair: &str,
         begin: DateTime<Utc>,
@@ -76,7 +94,7 @@ impl Client {
         Ok(markets)
     }
 
-    pub fn upsert_bot_status(&self, s: &BotStatus) -> Result<(), Box<dyn Error>> {
+    fn upsert_bot_status(&self, s: &BotStatus) -> Result<(), Box<dyn Error>> {
         let mut conn = self.get_conn()?;
         let sql = format!(
             "INSERT INTO bot_statuses (bot_name, type, value, memo) VALUES ('{}', '{}', {}, '{}') ON DUPLICATE KEY UPDATE value = {};",
@@ -86,11 +104,7 @@ impl Client {
         Ok(())
     }
 
-    pub fn select_bot_status(
-        &self,
-        bot_name: &str,
-        r#type: &str,
-    ) -> Result<BotStatus, Box<dyn Error>> {
+    fn select_bot_status(&self, bot_name: &str, r#type: &str) -> Result<BotStatus, Box<dyn Error>> {
         let mut conn = self.get_conn()?;
 
         let sql = format!(
@@ -112,7 +126,7 @@ impl Client {
         }
     }
 
-    pub fn insert_event(&self, event: &Event) -> Result<(), Box<dyn Error>> {
+    fn insert_event(&self, event: &Event) -> Result<(), Box<dyn Error>> {
         let mut conn = self.get_conn()?;
         let event_type = match event.event_type {
             EventType::Buy => 0,

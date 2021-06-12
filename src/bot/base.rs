@@ -17,15 +17,25 @@ use std::error::Error;
 use std::{thread, time};
 
 #[derive(Debug)]
-pub struct Bot<'a> {
+pub struct Bot<'a, T, U, V>
+where
+    T: slack::client::Client,
+    U: mysql::client::Client,
+    V: coincheck::client::Client,
+{
     pub config: &'a crate::config::Config,
-    pub coincheck_client: &'a coincheck::client::Client,
-    pub mysql_client: &'a mysql::client::Client,
-    pub slack_client: &'a slack::client::Client,
+    pub coincheck_client: &'a V,
+    pub mysql_client: &'a U,
+    pub slack_client: &'a T,
     pub signal_checker: &'a SignalChecker<'a>,
 }
 
-impl Bot<'_> {
+impl<T, U, V> Bot<'_, T, U, V>
+where
+    T: slack::client::Client,
+    U: mysql::client::Client,
+    V: coincheck::client::Client,
+{
     pub fn wait(&self) -> Result<(), Box<dyn Error>> {
         let d = time::Duration::from_secs(self.config.interval_sec);
         debug!("wait ... [{:?}]", d);
@@ -34,24 +44,24 @@ impl Bot<'_> {
     }
 
     pub async fn trade(&self) -> Result<(), Box<dyn Error>> {
-        let analyzer = self.fetch().await?;
+        let info = self.fetch().await?;
         info!(
             "{}",
             format!(
                 "{} sell:{:.3} buy:{:.3} {}[{}] {}[{}]",
-                analyzer.pair.to_string(),
-                analyzer.sell_rate,
-                analyzer.buy_rate,
-                analyzer.pair.key,
-                analyzer.balance_key,
-                analyzer.pair.settlement,
-                analyzer.balance_settlement,
+                info.pair.to_string(),
+                info.sell_rate,
+                info.buy_rate,
+                info.pair.key,
+                info.balance_key,
+                info.pair.settlement,
+                info.balance_settlement,
             )
             .yellow(),
         );
 
-        self.upsert(&analyzer)?;
-        let params = self.make_params(&analyzer)?;
+        self.upsert(&info)?;
+        let params = self.make_params(&info)?;
         self.action(params).await?;
         Ok(())
     }
@@ -142,11 +152,11 @@ impl Bot<'_> {
         })
     }
 
-    fn upsert(&self, analyzer: &TradeInfo) -> Result<(), Box<dyn Error>> {
-        let open_orders: Vec<&OpenOrder> = analyzer
+    fn upsert(&self, info: &TradeInfo) -> Result<(), Box<dyn Error>> {
+        let open_orders: Vec<&OpenOrder> = info
             .open_orders
             .iter()
-            .filter(|o| o.pair == analyzer.pair.to_string())
+            .filter(|o| o.pair == info.pair.to_string())
             .collect();
         let v = if open_orders.len() == 0 {
             -1.0
@@ -163,9 +173,9 @@ impl Bot<'_> {
             memo: "約定待ちの売注文レート".to_owned(),
         })?;
 
-        let rates_size = analyzer.rate_histories.len();
+        let rates_size = info.rate_histories.len();
 
-        let resistance_line = analyzer.resistance_lines.last().unwrap();
+        let resistance_line = info.resistance_lines.last().unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
             r#type: "resistance_line_value".to_owned(),
@@ -173,7 +183,7 @@ impl Bot<'_> {
             memo: "レジスタンスラインの現在値".to_owned(),
         })?;
 
-        let resistance_lines_before = analyzer.resistance_lines.get(rates_size - 2).unwrap();
+        let resistance_lines_before = info.resistance_lines.get(rates_size - 2).unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
             r#type: "resistance_line_slope".to_owned(),
@@ -181,7 +191,7 @@ impl Bot<'_> {
             memo: "レジスタンスラインの傾き".to_owned(),
         })?;
 
-        let support_line = analyzer.support_lines_long.last().unwrap();
+        let support_line = info.support_lines_long.last().unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
             r#type: "support_line_value".to_owned(),
@@ -189,7 +199,7 @@ impl Bot<'_> {
             memo: "サポートライン（長期）の現在値".to_owned(),
         })?;
 
-        let support_lines_before = analyzer.support_lines_long.get(rates_size - 2).unwrap();
+        let support_lines_before = info.support_lines_long.get(rates_size - 2).unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
             r#type: "support_line_slope".to_owned(),
@@ -197,7 +207,7 @@ impl Bot<'_> {
             memo: "サポートライン（長期）の傾き".to_owned(),
         })?;
 
-        let support_line = analyzer.support_lines_short.last().unwrap();
+        let support_line = info.support_lines_short.last().unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
             r#type: "support_line_short_value".to_owned(),
@@ -205,7 +215,7 @@ impl Bot<'_> {
             memo: "サポートライン（短期）の現在値".to_owned(),
         })?;
 
-        let support_lines_before = analyzer.support_lines_short.get(rates_size - 2).unwrap();
+        let support_lines_before = info.support_lines_short.get(rates_size - 2).unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
             r#type: "support_line_short_slope".to_owned(),
@@ -213,7 +223,7 @@ impl Bot<'_> {
             memo: "サポートライン（短期）の傾き".to_owned(),
         })?;
 
-        let total_balance_jpy = analyzer.calc_total_balance_jpy();
+        let total_balance_jpy = info.calc_total_balance_jpy();
         let total_jpy = match self
             .mysql_client
             .select_bot_status(&self.config.bot_name, "total_jpy")
@@ -222,7 +232,7 @@ impl Bot<'_> {
             Err(_) => 0.0,
         };
 
-        if !analyzer.has_position() || total_jpy < total_balance_jpy {
+        if !info.has_position() || total_jpy < total_balance_jpy {
             self.mysql_client.upsert_bot_status(&BotStatus {
                 bot_name: self.config.bot_name.to_owned(),
                 r#type: "total_jpy".to_owned(),
@@ -234,27 +244,27 @@ impl Bot<'_> {
         Ok(())
     }
 
-    fn make_params(&self, analyzer: &TradeInfo) -> Result<Vec<ActionType>, Box<dyn Error>> {
+    fn make_params(&self, info: &TradeInfo) -> Result<Vec<ActionType>, Box<dyn Error>> {
         let mut params: Vec<ActionType> = Vec::new();
 
-        if let Some(action_type) = self.check_unused_coin(analyzer)? {
+        if let Some(action_type) = self.check_unused_coin(info)? {
             params.push(action_type);
             return Ok(params);
         }
-        let mut action_types = self.check_loss_cut_or_avg_down(analyzer)?;
+        let mut action_types = self.check_loss_cut_or_avg_down(info)?;
         if !action_types.is_empty() {
             params.append(&mut action_types);
             return Ok(params);
         }
 
-        let skip = self.check_entry_skip(analyzer)?;
+        let skip = self.check_entry_skip(info)?;
         if skip {
             return Ok(params);
         }
 
-        if let Some(action_type) = self.check_resistance_line_breakout(analyzer)? {
+        if let Some(action_type) = self.check_resistance_line_breakout(info)? {
             params.push(action_type);
-        } else if let Some(action_type) = self.check_support_line_rebound(analyzer)? {
+        } else if let Some(action_type) = self.check_support_line_rebound(info)? {
             params.push(action_type);
         }
 
@@ -262,17 +272,14 @@ impl Bot<'_> {
     }
 
     // 未使用コインが一定以上なら通知
-    fn check_unused_coin(
-        &self,
-        analyzer: &TradeInfo,
-    ) -> Result<Option<ActionType>, Box<dyn Error>> {
+    fn check_unused_coin(&self, info: &TradeInfo) -> Result<Option<ActionType>, Box<dyn Error>> {
         let border = 1.0;
-        if analyzer.balance_key.amount < border {
+        if info.balance_key.amount < border {
             debug!(
                 "{}",
                 format!(
                     "has not unused coin (coin:{:.3} < border:{:.3})",
-                    analyzer.balance_key.amount, border
+                    info.balance_key.amount, border
                 )
                 .blue(),
             );
@@ -280,14 +287,14 @@ impl Bot<'_> {
         }
         info!(
             "has unused coin (coin:{} > border:{})",
-            format!("{:.3}", analyzer.balance_key.amount).yellow(),
+            format!("{:.3}", info.balance_key.amount).yellow(),
             format!("{:.3}", border).yellow(),
         );
 
         let message = format!(
             "unused coin exist ({} {})",
             self.config.key_currency(),
-            analyzer.balance_key.amount
+            info.balance_key.amount
         );
         let action = ActionType::Notify(NotifyParam {
             log_message: message.to_string(),
@@ -301,15 +308,15 @@ impl Bot<'_> {
     // 未決済注文のレートが現レートの一定以下なら損切りorナンピン
     fn check_loss_cut_or_avg_down(
         &self,
-        analyzer: &TradeInfo,
+        info: &TradeInfo,
     ) -> Result<Vec<ActionType>, Box<dyn Error>> {
         let mut actions = Vec::new();
-        for open_order in &analyzer.open_orders {
+        for open_order in &info.open_orders {
             match open_order.order_type {
                 OrderType::Sell => {
                     // 損切り？
                     let lower = open_order.rate * self.config.loss_cut_rate_ratio;
-                    if analyzer.sell_rate < lower {
+                    if info.sell_rate < lower {
                         actions.push(ActionType::LossCut(LossCutParam {
                             pair: Pair::new(&self.config.target_pair)?,
                             open_order_id: open_order.id,
@@ -319,12 +326,12 @@ impl Bot<'_> {
                     }
                     // ナンピン？
                     let lower = open_order.rate * self.config.avg_down_rate_ratio;
-                    let is_riging = if let Some(v) = analyzer.is_rate_rising() {
+                    let is_riging = if let Some(v) = info.is_rate_rising() {
                         v
                     } else {
                         false
                     };
-                    if analyzer.sell_rate < lower && is_riging {
+                    if info.sell_rate < lower && is_riging {
                         actions.push(ActionType::AvgDown(AvgDownParam {
                             pair: Pair::new(&self.config.target_pair)?,
                             market_buy_amount: self.calc_buy_jpy()?,
@@ -341,22 +348,22 @@ impl Bot<'_> {
         Ok(actions)
     }
 
-    fn check_entry_skip(&self, analyzer: &TradeInfo) -> Result<bool, Box<dyn Error>> {
+    fn check_entry_skip(&self, info: &TradeInfo) -> Result<bool, Box<dyn Error>> {
         // 未決済注文のレートが現レートとあまり離れてないならスキップ
-        if !analyzer.open_orders.is_empty() {
+        if !info.open_orders.is_empty() {
             let mut lower_rate = 0.0;
-            for (i, o) in analyzer.open_orders.iter().enumerate() {
+            for (i, o) in info.open_orders.iter().enumerate() {
                 if i == 0 || lower_rate > o.rate {
                     lower_rate = o.rate;
                 }
             }
             lower_rate *= self.config.entry_skip_rate_ratio;
 
-            if analyzer.sell_rate > lower_rate {
+            if info.sell_rate > lower_rate {
                 info!(
                     "{} entry check (sell rate:{} > lower_rate:{} )",
                     "SKIP".red(),
-                    format!("{:.3}", analyzer.sell_rate).yellow(),
+                    format!("{:.3}", info.sell_rate).yellow(),
                     format!("{:.3}", lower_rate).yellow(),
                 );
                 return Ok(true);
@@ -365,7 +372,7 @@ impl Bot<'_> {
                 "{}",
                 format!(
                     "NOT SKIP entry check (sell rate:{:.3} <= lower:{:.3})",
-                    analyzer.sell_rate, lower_rate
+                    info.sell_rate, lower_rate
                 )
                 .blue()
             );
@@ -373,14 +380,14 @@ impl Bot<'_> {
 
         // 短期の売りと買いの出来高差が一定以上ならスキップ
         let mut sell_volume = 0.0;
-        for (i, v) in analyzer.sell_volumes.iter().rev().enumerate() {
+        for (i, v) in info.sell_volumes.iter().rev().enumerate() {
             if i >= self.config.volume_period_short {
                 break;
             }
             sell_volume += v;
         }
         let mut buy_volume = 0.0;
-        for (i, v) in analyzer.buy_volumes.iter().rev().enumerate() {
+        for (i, v) in info.buy_volumes.iter().rev().enumerate() {
             if i >= self.config.volume_period_short {
                 break;
             }
@@ -413,9 +420,9 @@ impl Bot<'_> {
     // レジスタンスラインがブレイクアウトならエントリー
     fn check_resistance_line_breakout(
         &self,
-        analyzer: &TradeInfo,
+        info: &TradeInfo,
     ) -> Result<Option<ActionType>, Box<dyn Error>> {
-        let signal = self.signal_checker.check_resistance_line_breakout(analyzer);
+        let signal = self.signal_checker.check_resistance_line_breakout(info);
 
         if !signal.turned_on {
             info!("{}", signal.to_string());

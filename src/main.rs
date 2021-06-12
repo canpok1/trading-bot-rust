@@ -26,8 +26,11 @@ async fn main() {
         }
     }
 
-    let coincheck_cli: coincheck::client::Client;
-    match coincheck::client::Client::new(&config.exchange_access_key, &config.exchange_secret_key) {
+    let coincheck_cli: coincheck::client::DefaultClient;
+    match coincheck::client::DefaultClient::new(
+        &config.exchange_access_key,
+        &config.exchange_secret_key,
+    ) {
         Ok(cli) => {
             coincheck_cli = cli;
         }
@@ -37,8 +40,8 @@ async fn main() {
         }
     }
 
-    let mysql_cli: mysql::client::Client;
-    match mysql::client::Client::new(
+    let mysql_cli: mysql::client::DefaultClient;
+    match mysql::client::DefaultClient::new(
         &config.db_user_name,
         &config.db_password,
         &config.db_host,
@@ -54,8 +57,8 @@ async fn main() {
         }
     }
 
-    let slack_cli: slack::client::Client;
-    match slack::client::Client::new(&config.slack_url) {
+    let slack_cli: slack::client::DefaultClient;
+    match slack::client::DefaultClient::new(&config.slack_url) {
         Ok(cli) => {
             slack_cli = cli;
         }
