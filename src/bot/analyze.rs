@@ -75,6 +75,9 @@ pub struct TradeInfo {
     pub rate_histories: Vec<f64>,
     pub sell_volumes: Vec<f64>,
     pub buy_volumes: Vec<f64>,
+    pub support_lines_long: Vec<f64>,
+    pub support_lines_short: Vec<f64>,
+    pub resistance_lines: Vec<f64>,
 }
 
 impl TradeInfo {
@@ -86,8 +89,12 @@ impl TradeInfo {
         self.balance_key.total() * self.sell_rate >= 1.0
     }
 
-    pub fn support_lines(&self, period: usize, offset: usize) -> Result<Vec<f64>, Box<dyn Error>> {
-        let history_size = self.rate_histories.len();
+    pub fn support_lines(
+        rate_histories: &Vec<f64>,
+        period: usize,
+        offset: usize,
+    ) -> Result<Vec<f64>, Box<dyn Error>> {
+        let history_size = rate_histories.len();
         if history_size < period + offset {
             return Err(Box::new(TooShort {
                 len: history_size,
@@ -104,7 +111,7 @@ impl TradeInfo {
         for _ in 0..history_size {
             let mut x: Vec<f64> = Vec::new();
             let mut y: Vec<f64> = Vec::new();
-            for (i, rate) in self.rate_histories.iter().enumerate() {
+            for (i, rate) in rate_histories.iter().enumerate() {
                 if i < begin_idx || i > end_idx {
                     continue;
                 }
@@ -116,20 +123,20 @@ impl TradeInfo {
             if x.len() <= 3 {
                 break;
             }
-            let (aa, bb) = line_fit(&x, &y);
+            let (aa, bb) = TradeInfo::line_fit(&x, &y);
             a = aa;
             b = bb;
             begin = false;
         }
-        Ok(make_line(a, b, self.rate_histories.len()))
+        Ok(TradeInfo::make_line(a, b, rate_histories.len()))
     }
 
     pub fn resistance_lines(
-        &self,
+        rate_histories: &Vec<f64>,
         period: usize,
         offset: usize,
     ) -> Result<Vec<f64>, Box<dyn Error>> {
-        let history_size = self.rate_histories.len();
+        let history_size = rate_histories.len();
         if history_size < period + offset {
             return Err(Box::new(TooShort {
                 len: history_size,
@@ -146,7 +153,7 @@ impl TradeInfo {
         for _ in 0..history_size {
             let mut x: Vec<f64> = Vec::new();
             let mut y: Vec<f64> = Vec::new();
-            for (i, rate) in self.rate_histories.iter().enumerate() {
+            for (i, rate) in rate_histories.iter().enumerate() {
                 if i < begin_idx || i > end_idx {
                     continue;
                 }
@@ -158,12 +165,12 @@ impl TradeInfo {
             if x.len() <= 3 {
                 break;
             }
-            let (aa, bb) = line_fit(&x, &y);
+            let (aa, bb) = TradeInfo::line_fit(&x, &y);
             a = aa;
             b = bb;
             begin = false;
         }
-        Ok(make_line(a, b, self.rate_histories.len()))
+        Ok(TradeInfo::make_line(a, b, rate_histories.len()))
     }
 
     pub fn is_upper_rebound(
@@ -235,36 +242,36 @@ impl TradeInfo {
             None
         }
     }
-}
 
-fn line_fit(x: &Vec<f64>, y: &Vec<f64>) -> (f64, f64) {
-    let ndata = x.len();
-    if ndata < 2 {
-        return (0.0, 0.0);
+    fn line_fit(x: &Vec<f64>, y: &Vec<f64>) -> (f64, f64) {
+        let ndata = x.len();
+        if ndata < 2 {
+            return (0.0, 0.0);
+        }
+
+        let mut sx = 0.0;
+        let mut sy = 0.0;
+        for i in 0..ndata {
+            sx += x[i];
+            sy += y[i];
+        }
+        let mut st2 = 0.0;
+        let mut a = 0.0;
+        let sxoss = sx / (ndata as f64);
+        for i in 0..ndata {
+            let t = x[i] - sxoss;
+            st2 += t * t;
+            a += t * y[i];
+        }
+        a /= st2;
+
+        let b = (sy - sx * a) / (ndata as f64);
+        (a, b)
     }
 
-    let mut sx = 0.0;
-    let mut sy = 0.0;
-    for i in 0..ndata {
-        sx += x[i];
-        sy += y[i];
+    fn make_line(a: f64, b: f64, size: usize) -> Vec<f64> {
+        (0..size).map(|i| a * (i as f64) + b).collect()
     }
-    let mut st2 = 0.0;
-    let mut a = 0.0;
-    let sxoss = sx / (ndata as f64);
-    for i in 0..ndata {
-        let t = x[i] - sxoss;
-        st2 += t * t;
-        a += t * y[i];
-    }
-    a /= st2;
-
-    let b = (sy - sx * a) / (ndata as f64);
-    (a, b)
-}
-
-fn make_line(a: f64, b: f64, size: usize) -> Vec<f64> {
-    (0..size).map(|i| a * (i as f64) + b).collect()
 }
 
 #[derive(Debug)]
@@ -302,24 +309,14 @@ impl SignalChecker<'_> {
             detail: "".to_owned(),
         };
 
-        let result = info.resistance_lines(
-            self.config.resistance_line_period,
-            self.config.resistance_line_offset,
-        );
-        if let Err(err) = result {
-            signal.detail = format!("error occured, {}", err);
-            return signal;
-        }
-
         // レジスタンスライン関連の情報
-        let lines = result.unwrap();
-        let slope = lines[1] - lines[0];
+        let slope = info.resistance_lines[1] - info.resistance_lines[0];
 
         let width_upper = info.sell_rate * self.config.resistance_line_width_ratio_upper;
         let width_lower = info.sell_rate * self.config.resistance_line_width_ratio_lower;
 
-        let upper = lines.last().unwrap() + width_upper;
-        let lower = lines.last().unwrap() + width_lower;
+        let upper = info.resistance_lines.last().unwrap() + width_upper;
+        let lower = info.resistance_lines.last().unwrap() + width_lower;
 
         // レジスタンスラインの傾きチェック
         if slope < 0.0 {
@@ -329,7 +326,7 @@ impl SignalChecker<'_> {
 
         // レジスタンスラインのすぐ上でリバウンドしたかチェック
         if !info.is_upper_rebound(
-            &lines,
+            &info.resistance_lines,
             width_upper,
             width_lower,
             self.config.rebound_check_period,
@@ -362,51 +359,79 @@ impl SignalChecker<'_> {
     }
 
     // サポートラインがリバウンドしてるならエントリー
-    fn check_support_line_rebound(&self, info: &TradeInfo) -> Signal {
+    pub fn check_support_line_rebound(&self, info: &TradeInfo) -> Signal {
         let mut signal = Signal {
             turned_on: false,
             name: "support line rebound".to_owned(),
             detail: "".to_owned(),
         };
 
-        let result = info.support_lines(
-            self.config.support_line_period_long,
-            self.config.support_line_offset,
-        );
-        if let Err(err) = result {
-            signal.detail = format!("error occured, {}", err);
-            return signal;
-        }
+        // サポートライン（長期）関連の情報
+        let (is_rebounded_long, is_rebounded_long_info) =
+            self.is_support_line_rebound(info, &info.support_lines_long);
+        let (on_support_line_long, on_support_line_long_info) =
+            self.is_on_support_line(info, &info.support_lines_long);
 
-        // サポートライン関連の情報
-        let lines = result.unwrap();
-        let _slope = lines[1] - lines[0];
-        let width_upper = info.sell_rate * self.config.support_line_width_ratio_upper;
-        let width_lower = info.sell_rate * self.config.support_line_width_ratio_lower;
-        let upper = lines.last().unwrap() + width_upper;
-        let lower = lines.last().unwrap() - width_lower;
+        // サポートライン（短期）関連の情報
+        let (is_rebounded_short, is_rebounded_short_info) =
+            self.is_support_line_rebound(info, &info.support_lines_short);
+        let (on_support_line_short, on_support_line_short_info) =
+            self.is_on_support_line(info, &info.support_lines_short);
 
         // サポートラインのすぐ上でリバウンドしたかチェック
-        if !info.is_upper_rebound(
-            &lines,
-            width_upper,
-            width_lower,
-            self.config.rebound_check_period,
-        ) {
-            signal.detail = "is_upper_rebound: false".to_owned();
+        if !is_rebounded_long && !is_rebounded_short {
+            signal.detail = format!("{}, {}", is_rebounded_long_info, is_rebounded_short_info);
             return signal;
         }
 
         // 現レートがサポートライン近くかをチェック
-        if info.sell_rate < lower || info.sell_rate > upper {
+        if !on_support_line_long && !on_support_line_short {
             signal.detail = format!(
-                "sell rate:{:.3} is out of range:{:.3}...{:.3}",
-                info.sell_rate, lower, upper,
+                "{}, {}",
+                on_support_line_long_info, on_support_line_short_info
             );
             return signal;
         }
 
         signal.turned_on = true;
         signal
+    }
+
+    fn is_support_line_rebound(&self, info: &TradeInfo, lines: &Vec<f64>) -> (bool, String) {
+        let width_upper = info.sell_rate * self.config.support_line_width_ratio_upper;
+        let width_lower = info.sell_rate * self.config.support_line_width_ratio_lower;
+        let rebounded = info.is_upper_rebound(
+            lines,
+            width_upper,
+            width_lower,
+            self.config.rebound_check_period,
+        );
+        if rebounded {
+            (rebounded, "is_upper_rebound: true".to_string())
+        } else {
+            (rebounded, "is_upper_rebound: false".to_string())
+        }
+    }
+
+    fn is_on_support_line(&self, info: &TradeInfo, lines: &Vec<f64>) -> (bool, String) {
+        let width_upper = info.sell_rate * self.config.support_line_width_ratio_upper;
+        let width_lower = info.sell_rate * self.config.support_line_width_ratio_lower;
+        let upper = lines.last().unwrap() + width_upper;
+        let lower = lines.last().unwrap() - width_lower;
+        let result = info.sell_rate >= lower && info.sell_rate <= upper;
+        let message = if result {
+            format!(
+                "sell rate:{} is on support line:{}",
+                format!("{:.3}", info.sell_rate),
+                format!("{:.3}...{:.3}", lower, upper)
+            )
+        } else {
+            format!(
+                "sell rate:{} is not on support line:{}",
+                format!("{:.3}", info.sell_rate),
+                format!("{:.3}...{:.3}", lower, upper)
+            )
+        };
+        (result, message)
     }
 }

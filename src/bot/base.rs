@@ -82,6 +82,22 @@ impl Bot<'_> {
 
         let open_orders = self.coincheck_client.get_exchange_orders_opens().await?;
 
+        let support_lines_long = TradeInfo::support_lines(
+            &rate_histories,
+            self.config.support_line_period_long,
+            self.config.support_line_offset,
+        )?;
+        let support_lines_short = TradeInfo::support_lines(
+            &rate_histories,
+            self.config.support_line_period_short,
+            self.config.support_line_offset,
+        )?;
+        let resistance_lines = TradeInfo::resistance_lines(
+            &rate_histories,
+            self.config.resistance_line_period,
+            self.config.resistance_line_offset,
+        )?;
+
         Ok(TradeInfo {
             pair: pair,
             sell_rate: sell_rate,
@@ -92,6 +108,9 @@ impl Bot<'_> {
             rate_histories: rate_histories,
             sell_volumes: sell_volumes,
             buy_volumes: buy_volumes,
+            support_lines_long: support_lines_long,
+            support_lines_short: support_lines_short,
+            resistance_lines: resistance_lines,
         })
     }
 
@@ -146,92 +165,53 @@ impl Bot<'_> {
 
         let rates_size = analyzer.rate_histories.len();
 
-        match analyzer.resistance_lines(
-            self.config.resistance_line_period,
-            self.config.resistance_line_offset,
-        ) {
-            Ok(resistance_lines) => {
-                let resistance_line = resistance_lines.last().unwrap();
-                self.mysql_client.upsert_bot_status(&BotStatus {
-                    bot_name: self.config.bot_name.to_owned(),
-                    r#type: "resistance_line_value".to_owned(),
-                    value: resistance_line.to_owned(),
-                    memo: "レジスタンスラインの現在値".to_owned(),
-                })?;
+        let resistance_line = analyzer.resistance_lines.last().unwrap();
+        self.mysql_client.upsert_bot_status(&BotStatus {
+            bot_name: self.config.bot_name.to_owned(),
+            r#type: "resistance_line_value".to_owned(),
+            value: resistance_line.to_owned(),
+            memo: "レジスタンスラインの現在値".to_owned(),
+        })?;
 
-                let resistance_lines_before = resistance_lines.get(rates_size - 2).unwrap();
-                self.mysql_client.upsert_bot_status(&BotStatus {
-                    bot_name: self.config.bot_name.to_owned(),
-                    r#type: "resistance_line_slope".to_owned(),
-                    value: resistance_line - resistance_lines_before,
-                    memo: "レジスタンスラインの傾き".to_owned(),
-                })?;
-            }
-            Err(err) => {
-                warn!(
-                    "skip upsert bot_status, as failed to get resistance lines ({})",
-                    err
-                );
-            }
-        }
+        let resistance_lines_before = analyzer.resistance_lines.get(rates_size - 2).unwrap();
+        self.mysql_client.upsert_bot_status(&BotStatus {
+            bot_name: self.config.bot_name.to_owned(),
+            r#type: "resistance_line_slope".to_owned(),
+            value: resistance_line - resistance_lines_before,
+            memo: "レジスタンスラインの傾き".to_owned(),
+        })?;
 
-        match analyzer.support_lines(
-            self.config.support_line_period_long,
-            self.config.support_line_offset,
-        ) {
-            Ok(support_lines) => {
-                let support_line = support_lines.last().unwrap();
-                self.mysql_client.upsert_bot_status(&BotStatus {
-                    bot_name: self.config.bot_name.to_owned(),
-                    r#type: "support_line_value".to_owned(),
-                    value: support_line.to_owned(),
-                    memo: "サポートライン（長期）の現在値".to_owned(),
-                })?;
+        let support_line = analyzer.support_lines_long.last().unwrap();
+        self.mysql_client.upsert_bot_status(&BotStatus {
+            bot_name: self.config.bot_name.to_owned(),
+            r#type: "support_line_value".to_owned(),
+            value: support_line.to_owned(),
+            memo: "サポートライン（長期）の現在値".to_owned(),
+        })?;
 
-                let support_lines_before = support_lines.get(rates_size - 2).unwrap();
-                self.mysql_client.upsert_bot_status(&BotStatus {
-                    bot_name: self.config.bot_name.to_owned(),
-                    r#type: "support_line_slope".to_owned(),
-                    value: support_line - support_lines_before,
-                    memo: "サポートライン（長期）の傾き".to_owned(),
-                })?;
-            }
-            Err(err) => {
-                warn!(
-                    "skip upsert bot_status, as failed to get support line ({})",
-                    err
-                );
-            }
-        }
+        let support_lines_before = analyzer.support_lines_long.get(rates_size - 2).unwrap();
+        self.mysql_client.upsert_bot_status(&BotStatus {
+            bot_name: self.config.bot_name.to_owned(),
+            r#type: "support_line_slope".to_owned(),
+            value: support_line - support_lines_before,
+            memo: "サポートライン（長期）の傾き".to_owned(),
+        })?;
 
-        match analyzer.support_lines(
-            self.config.support_line_period_short,
-            self.config.support_line_offset,
-        ) {
-            Ok(support_lines) => {
-                let support_line = support_lines.last().unwrap();
-                self.mysql_client.upsert_bot_status(&BotStatus {
-                    bot_name: self.config.bot_name.to_owned(),
-                    r#type: "support_line_short_value".to_owned(),
-                    value: support_line.to_owned(),
-                    memo: "サポートライン（短期）の現在値".to_owned(),
-                })?;
+        let support_line = analyzer.support_lines_short.last().unwrap();
+        self.mysql_client.upsert_bot_status(&BotStatus {
+            bot_name: self.config.bot_name.to_owned(),
+            r#type: "support_line_short_value".to_owned(),
+            value: support_line.to_owned(),
+            memo: "サポートライン（短期）の現在値".to_owned(),
+        })?;
 
-                let support_lines_before = support_lines.get(rates_size - 2).unwrap();
-                self.mysql_client.upsert_bot_status(&BotStatus {
-                    bot_name: self.config.bot_name.to_owned(),
-                    r#type: "support_line_short_slope".to_owned(),
-                    value: support_line - support_lines_before,
-                    memo: "サポートライン（短期）の傾き".to_owned(),
-                })?;
-            }
-            Err(err) => {
-                warn!(
-                    "skip upsert bot_status, as failed to get support line ({})",
-                    err
-                );
-            }
-        }
+        let support_lines_before = analyzer.support_lines_short.get(rates_size - 2).unwrap();
+        self.mysql_client.upsert_bot_status(&BotStatus {
+            bot_name: self.config.bot_name.to_owned(),
+            r#type: "support_line_short_slope".to_owned(),
+            value: support_line - support_lines_before,
+            memo: "サポートライン（短期）の傾き".to_owned(),
+        })?;
 
         let total_balance_jpy = analyzer.calc_total_balance_jpy();
         let total_jpy = match self
@@ -435,69 +415,10 @@ impl Bot<'_> {
         &self,
         analyzer: &TradeInfo,
     ) -> Result<Option<ActionType>, Box<dyn Error>> {
-        let result = analyzer.resistance_lines(
-            self.config.resistance_line_period,
-            self.config.resistance_line_offset,
-        );
-        if let Err(err) = result {
-            info!("{} resistance line not breakout ({})", "NG".red(), err);
-            return Ok(None);
-        }
+        let signal = self.signal_checker.check_resistance_line_breakout(analyzer);
 
-        // レジスタンスライン関連の情報
-        let lines = result.unwrap();
-        let slope = lines[1] - lines[0];
-
-        let width_upper = analyzer.sell_rate * self.config.resistance_line_width_ratio_upper;
-        let width_lower = analyzer.sell_rate * self.config.resistance_line_width_ratio_lower;
-
-        let upper = lines.last().unwrap() + width_upper;
-        let lower = lines.last().unwrap() + width_lower;
-
-        // レジスタンスラインの傾きチェック
-        if slope < 0.0 {
-            info!(
-                "{} resistance line not breakout (slope:{} < 0.0)",
-                "NG".red(),
-                format!("{:.3}", slope).yellow(),
-            );
-            return Ok(None);
-        }
-
-        // レジスタンスラインのすぐ上でリバウンドしたかチェック
-        if !analyzer.is_upper_rebound(
-            &lines,
-            width_upper,
-            width_lower,
-            self.config.rebound_check_period,
-        ) {
-            info!(
-                "{} resistance line not breakout (not roll reversal)",
-                "NG".red()
-            );
-            return Ok(None);
-        }
-
-        // 現レートがレジスタンスライン近くかをチェック
-        if analyzer.sell_rate < lower || analyzer.sell_rate > upper {
-            info!(
-                "{} resistance line not breakout (sell rate:{} is out of range:{})",
-                "NG".red(),
-                format!("{:.3}", analyzer.sell_rate),
-                format!("{:.3}...{:.3}", lower, upper),
-            );
-            return Ok(None);
-        }
-
-        // レート上昇中かチェック
-        let before_rate = *analyzer.rate_histories.last().unwrap();
-        if analyzer.sell_rate <= before_rate {
-            info!(
-                "{} resistance line not breakout (sell rate is not rising) (sell rate:{} <= before:{})",
-                "NG".red(),
-                format!("{:.3}", analyzer.sell_rate),
-                format!("{:.3}", before_rate),
-            );
+        if !signal.turned_on {
+            info!("{}", signal.to_string());
             return Ok(None);
         }
 
@@ -524,72 +445,18 @@ impl Bot<'_> {
     // サポートラインがリバウンドしてるならエントリー
     fn check_support_line_rebound(
         &self,
-        analyzer: &TradeInfo,
+        info: &TradeInfo,
     ) -> Result<Option<ActionType>, Box<dyn Error>> {
-        // サポートライン（長期）関連の情報
-        let result = analyzer.support_lines(
-            self.config.support_line_period_long,
-            self.config.support_line_offset,
-        );
-        if let Err(err) = result {
-            info!(
-                "{} not rebounded on the support line long ({})",
-                "NG".red(),
-                err
-            );
-            return Ok(None);
-        }
-        let support_lines_long = result.unwrap();
-        let (is_rebounded_long, is_rebounded_long_info) =
-            self.is_support_line_rebound(analyzer, &support_lines_long);
-        let (on_support_line_long, on_support_line_long_info) =
-            self.is_on_support_line(analyzer, &support_lines_long);
-
-        // サポートライン（短期）関連の情報
-        let result = analyzer.support_lines(
-            self.config.support_line_period_short,
-            self.config.support_line_offset,
-        );
-        if let Err(err) = result {
-            info!(
-                "{} not rebounded on the support line short ({})",
-                "NG".red(),
-                err
-            );
-            return Ok(None);
-        }
-        let support_lines_short = result.unwrap();
-        let (is_rebounded_short, is_rebounded_short_info) =
-            self.is_support_line_rebound(analyzer, &support_lines_short);
-        let (on_support_line_short, on_support_line_short_info) =
-            self.is_on_support_line(analyzer, &support_lines_short);
-
-        // サポートラインのすぐ上でリバウンドしたかチェック
-        if !is_rebounded_long && !is_rebounded_short {
-            info!(
-                "{} not rebounded on the support line ({})({})",
-                "NG".red(),
-                is_rebounded_long_info,
-                is_rebounded_short_info,
-            );
-            return Ok(None);
-        }
-
-        // 現レートがサポートライン近くかをチェック
-        if !on_support_line_long && !on_support_line_short {
-            info!(
-                "{} not rebounded on the support line ({})({})",
-                "NG".red(),
-                on_support_line_long_info,
-                on_support_line_short_info,
-            );
+        let signal = self.signal_checker.check_support_line_rebound(info);
+        if signal.turned_on {
+            info!("{}", signal.to_string());
             return Ok(None);
         }
 
         match self.calc_buy_jpy() {
             Ok(buy_jpy) => {
-                let long_slope = support_lines_long[1] - support_lines_long[0];
-                let short_slope = support_lines_short[1] - support_lines_short[0];
+                let long_slope = info.support_lines_long[1] - info.support_lines_long[0];
+                let short_slope = info.support_lines_short[1] - info.support_lines_short[0];
                 let profit_ratio = if long_slope > 0.0 && short_slope > 0.0 {
                     self.config.profit_ratio_per_order
                 } else {
@@ -611,44 +478,6 @@ impl Bot<'_> {
                 Ok(None)
             }
         }
-    }
-
-    fn is_support_line_rebound(&self, analyzer: &TradeInfo, lines: &Vec<f64>) -> (bool, String) {
-        let width_upper = analyzer.sell_rate * self.config.support_line_width_ratio_upper;
-        let width_lower = analyzer.sell_rate * self.config.support_line_width_ratio_lower;
-        let rebounded = analyzer.is_upper_rebound(
-            lines,
-            width_upper,
-            width_lower,
-            self.config.rebound_check_period,
-        );
-        if rebounded {
-            (rebounded, "is_upper_rebound: true".to_string())
-        } else {
-            (rebounded, "is_upper_rebound: false".to_string())
-        }
-    }
-
-    fn is_on_support_line(&self, analyzer: &TradeInfo, lines: &Vec<f64>) -> (bool, String) {
-        let width_upper = analyzer.sell_rate * self.config.support_line_width_ratio_upper;
-        let width_lower = analyzer.sell_rate * self.config.support_line_width_ratio_lower;
-        let upper = lines.last().unwrap() + width_upper;
-        let lower = lines.last().unwrap() - width_lower;
-        let result = analyzer.sell_rate >= lower && analyzer.sell_rate <= upper;
-        let message = if result {
-            format!(
-                "sell rate:{} is on support line:{}",
-                format!("{:.3}", analyzer.sell_rate),
-                format!("{:.3}...{:.3}", lower, upper)
-            )
-        } else {
-            format!(
-                "sell rate:{} is not on support line:{}",
-                format!("{:.3}", analyzer.sell_rate),
-                format!("{:.3}...{:.3}", lower, upper)
-            )
-        };
-        (result, message)
     }
 
     fn calc_buy_jpy(&self) -> Result<f64, Box<dyn Error>> {
