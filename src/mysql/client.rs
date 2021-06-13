@@ -1,26 +1,22 @@
+use crate::error::MyError::RecordNotFound;
+use crate::error::MyResult;
 use crate::mysql::model::{BotStatus, Event, EventType, Market, Markets};
+
 use chrono::DateTime;
 use chrono::Utc;
 use mysql::prelude::Queryable;
 use mysql::OptsBuilder;
 use mysql::Pool;
 use mysql::PooledConn;
-use std::error::Error;
 
 pub trait Client {
-    fn get_conn(&self) -> Result<PooledConn, Box<dyn Error>>;
+    fn select_markets(&self, pair: &str, begin: DateTime<Utc>) -> MyResult<Markets>;
 
-    fn select_markets(
-        &self,
-        pair: &str,
-        begin: DateTime<Utc>,
-    ) -> std::result::Result<Markets, Box<dyn Error>>;
+    fn upsert_bot_status(&self, s: &BotStatus) -> MyResult<()>;
 
-    fn upsert_bot_status(&self, s: &BotStatus) -> Result<(), Box<dyn Error>>;
+    fn select_bot_status(&self, bot_name: &str, r#type: &str) -> MyResult<BotStatus>;
 
-    fn select_bot_status(&self, bot_name: &str, r#type: &str) -> Result<BotStatus, Box<dyn Error>>;
-
-    fn insert_event(&self, event: &Event) -> Result<(), Box<dyn Error>>;
+    fn insert_event(&self, event: &Event) -> MyResult<()>;
 }
 
 #[derive(Debug)]
@@ -35,7 +31,7 @@ impl DefaultClient {
         host: &str,
         port: u16,
         database: &str,
-    ) -> std::result::Result<DefaultClient, Box<dyn Error>> {
+    ) -> MyResult<DefaultClient> {
         let opts = OptsBuilder::new()
             .user(Some(user))
             .pass(Some(password))
@@ -47,21 +43,17 @@ impl DefaultClient {
             pool: Pool::new(opts)?,
         })
     }
-}
 
-impl Client for DefaultClient {
-    fn get_conn(&self) -> Result<PooledConn, Box<dyn Error>> {
+    fn get_conn(&self) -> MyResult<PooledConn> {
         match self.pool.get_conn() {
             Ok(v) => Ok(v),
             Err(e) => Err(Box::new(e)),
         }
     }
+}
 
-    fn select_markets(
-        &self,
-        pair: &str,
-        begin: DateTime<Utc>,
-    ) -> std::result::Result<Markets, Box<dyn Error>> {
+impl Client for DefaultClient {
+    fn select_markets(&self, pair: &str, begin: DateTime<Utc>) -> MyResult<Markets> {
         let mut conn = self.get_conn()?;
 
         let sql = format!(
@@ -94,7 +86,7 @@ impl Client for DefaultClient {
         Ok(markets)
     }
 
-    fn upsert_bot_status(&self, s: &BotStatus) -> Result<(), Box<dyn Error>> {
+    fn upsert_bot_status(&self, s: &BotStatus) -> MyResult<()> {
         let mut conn = self.get_conn()?;
         let sql = format!(
             "INSERT INTO bot_statuses (bot_name, type, value, memo) VALUES ('{}', '{}', {}, '{}') ON DUPLICATE KEY UPDATE value = {};",
@@ -104,7 +96,7 @@ impl Client for DefaultClient {
         Ok(())
     }
 
-    fn select_bot_status(&self, bot_name: &str, r#type: &str) -> Result<BotStatus, Box<dyn Error>> {
+    fn select_bot_status(&self, bot_name: &str, r#type: &str) -> MyResult<BotStatus> {
         let mut conn = self.get_conn()?;
 
         let sql = format!(
@@ -119,14 +111,14 @@ impl Client for DefaultClient {
                 memo: memo,
             })
         } else {
-            Err(Box::new(crate::error::Error::RecordNotFound {
+            Err(Box::new(RecordNotFound {
                 table: "bot_statuses".to_owned(),
                 param: format!("bot_name:{}, type:{}", bot_name, r#type),
             }))
         }
     }
 
-    fn insert_event(&self, event: &Event) -> Result<(), Box<dyn Error>> {
+    fn insert_event(&self, event: &Event) -> MyResult<()> {
         let mut conn = self.get_conn()?;
         let event_type = match event.event_type {
             EventType::Buy => 0,

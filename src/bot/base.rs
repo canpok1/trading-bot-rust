@@ -4,6 +4,7 @@ use crate::bot::model::NotifyParam;
 use crate::bot::model::{ActionType, EntryParam, LossCutParam, SellParam};
 use crate::coincheck;
 use crate::coincheck::model::{Balance, NewOrder, OpenOrder, OrderType, Pair};
+use crate::error::MyResult;
 use crate::mysql;
 use crate::mysql::model::{BotStatus, Event, EventType, MarketsMethods};
 use crate::slack;
@@ -13,7 +14,6 @@ use std::collections::HashMap;
 use chrono::{Duration, Utc};
 use colored::Colorize;
 use log::{debug, error, info, warn};
-use std::error::Error;
 use std::{thread, time};
 
 #[derive(Debug)]
@@ -36,14 +36,14 @@ where
     U: mysql::client::Client,
     V: coincheck::client::Client,
 {
-    pub fn wait(&self) -> Result<(), Box<dyn Error>> {
+    pub fn wait(&self) -> MyResult<()> {
         let d = time::Duration::from_secs(self.config.interval_sec);
         debug!("wait ... [{:?}]", d);
         thread::sleep(d);
         Ok(())
     }
 
-    pub async fn trade(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn trade(&self) -> MyResult<()> {
         let info = self.fetch().await?;
         info!(
             "{}",
@@ -66,7 +66,7 @@ where
         Ok(())
     }
 
-    async fn fetch(&self) -> Result<TradeInfo, Box<dyn Error>> {
+    async fn fetch(&self) -> MyResult<TradeInfo> {
         let pair = Pair::new(&self.config.target_pair)?;
         let sell_rate = self
             .coincheck_client
@@ -124,10 +124,7 @@ where
         })
     }
 
-    fn fetch_balance_key(
-        &self,
-        balances: &HashMap<String, Balance>,
-    ) -> Result<Balance, Box<dyn Error>> {
+    fn fetch_balance_key(&self, balances: &HashMap<String, Balance>) -> MyResult<Balance> {
         let key = self.config.key_currency();
         let balance = balances
             .get(&key)
@@ -138,10 +135,7 @@ where
         })
     }
 
-    fn fetch_balance_settlement(
-        &self,
-        balances: &HashMap<String, Balance>,
-    ) -> Result<Balance, Box<dyn Error>> {
+    fn fetch_balance_settlement(&self, balances: &HashMap<String, Balance>) -> MyResult<Balance> {
         let settlement = self.config.settlement_currency();
         let balance = balances
             .get(&settlement)
@@ -152,7 +146,7 @@ where
         })
     }
 
-    fn upsert(&self, info: &TradeInfo) -> Result<(), Box<dyn Error>> {
+    fn upsert(&self, info: &TradeInfo) -> MyResult<()> {
         let open_orders: Vec<&OpenOrder> = info
             .open_orders
             .iter()
@@ -244,7 +238,7 @@ where
         Ok(())
     }
 
-    fn make_params(&self, info: &TradeInfo) -> Result<Vec<ActionType>, Box<dyn Error>> {
+    fn make_params(&self, info: &TradeInfo) -> MyResult<Vec<ActionType>> {
         let mut params: Vec<ActionType> = Vec::new();
 
         if let Some(action_type) = self.check_unused_coin(info)? {
@@ -272,7 +266,7 @@ where
     }
 
     // 未使用コインが一定以上なら通知
-    fn check_unused_coin(&self, info: &TradeInfo) -> Result<Option<ActionType>, Box<dyn Error>> {
+    fn check_unused_coin(&self, info: &TradeInfo) -> MyResult<Option<ActionType>> {
         let border = 1.0;
         if info.balance_key.amount < border {
             debug!(
@@ -306,10 +300,7 @@ where
     }
 
     // 未決済注文のレートが現レートの一定以下なら損切りorナンピン
-    fn check_loss_cut_or_avg_down(
-        &self,
-        info: &TradeInfo,
-    ) -> Result<Vec<ActionType>, Box<dyn Error>> {
+    fn check_loss_cut_or_avg_down(&self, info: &TradeInfo) -> MyResult<Vec<ActionType>> {
         let mut actions = Vec::new();
         for open_order in &info.open_orders {
             match open_order.order_type {
@@ -348,7 +339,7 @@ where
         Ok(actions)
     }
 
-    fn check_entry_skip(&self, info: &TradeInfo) -> Result<bool, Box<dyn Error>> {
+    fn check_entry_skip(&self, info: &TradeInfo) -> MyResult<bool> {
         // 未決済注文のレートが現レートとあまり離れてないならスキップ
         if !info.open_orders.is_empty() {
             let mut lower_rate = 0.0;
@@ -418,10 +409,7 @@ where
     }
 
     // レジスタンスラインがブレイクアウトならエントリー
-    fn check_resistance_line_breakout(
-        &self,
-        info: &TradeInfo,
-    ) -> Result<Option<ActionType>, Box<dyn Error>> {
+    fn check_resistance_line_breakout(&self, info: &TradeInfo) -> MyResult<Option<ActionType>> {
         let signal = self.signal_checker.check_resistance_line_breakout(info);
 
         if !signal.turned_on {
@@ -450,10 +438,7 @@ where
     }
 
     // サポートラインがリバウンドしてるならエントリー
-    fn check_support_line_rebound(
-        &self,
-        info: &TradeInfo,
-    ) -> Result<Option<ActionType>, Box<dyn Error>> {
+    fn check_support_line_rebound(&self, info: &TradeInfo) -> MyResult<Option<ActionType>> {
         let signal = self.signal_checker.check_support_line_rebound(info);
         if signal.turned_on {
             info!("{}", signal.to_string());
@@ -487,7 +472,7 @@ where
         }
     }
 
-    fn calc_buy_jpy(&self) -> Result<f64, Box<dyn Error>> {
+    fn calc_buy_jpy(&self) -> MyResult<f64> {
         let total_jpy = self
             .mysql_client
             .select_bot_status(&self.config.bot_name, "total_jpy")?;
@@ -495,7 +480,7 @@ where
         Ok(buy_jpy)
     }
 
-    async fn action(&self, tt: Vec<ActionType>) -> Result<(), Box<dyn Error>> {
+    async fn action(&self, tt: Vec<ActionType>) -> MyResult<()> {
         if tt.is_empty() {
             info!("skip action (action is empty)");
             return Ok(());
@@ -591,11 +576,7 @@ where
         Ok(())
     }
 
-    async fn action_entry(
-        &self,
-        balance_jpy: &Balance,
-        param: &EntryParam,
-    ) -> Result<(), Box<dyn Error>> {
+    async fn action_entry(&self, balance_jpy: &Balance, param: &EntryParam) -> MyResult<()> {
         if self.config.demo_mode {
             info!("{}", "skip entry as demo mode".green());
             return Ok(());
@@ -641,7 +622,7 @@ where
         Ok(())
     }
 
-    async fn action_loss_cut(&self, param: &LossCutParam) -> Result<(), Box<dyn Error>> {
+    async fn action_loss_cut(&self, param: &LossCutParam) -> MyResult<()> {
         if self.config.demo_mode {
             info!("{}", "skip loss cut as demo mode".green());
             return Ok(());
@@ -669,7 +650,7 @@ where
         Ok(())
     }
 
-    async fn action_sell(&self, param: &SellParam) -> Result<(), Box<dyn Error>> {
+    async fn action_sell(&self, param: &SellParam) -> MyResult<()> {
         if self.config.demo_mode {
             info!("{}", "skip sell as demo mode".green());
             return Ok(());
@@ -698,11 +679,7 @@ where
         Ok(())
     }
 
-    async fn action_avg_down(
-        &self,
-        balance_jpy: &Balance,
-        param: &AvgDownParam,
-    ) -> Result<(), Box<dyn Error>> {
+    async fn action_avg_down(&self, balance_jpy: &Balance, param: &AvgDownParam) -> MyResult<()> {
         if self.config.demo_mode {
             info!("{}", "skip avg down as demo mode".green());
             return Ok(());
@@ -753,7 +730,7 @@ where
     }
 
     // 成行買い注文
-    async fn market_buy(&self, pair: &Pair, amount_jpy: f64) -> Result<f64, Box<dyn Error>> {
+    async fn market_buy(&self, pair: &Pair, amount_jpy: f64) -> MyResult<f64> {
         // 買い注文で増加したコイン数を算出するため最初の残高を保存しておく
         let coin_amount_begin = {
             let balances = self.coincheck_client.get_accounts_balance().await?;
@@ -822,7 +799,7 @@ where
     }
 
     // 成行売り注文
-    async fn market_sell(&self, pair: &Pair, amount_coin: f64) -> Result<(), Box<dyn Error>> {
+    async fn market_sell(&self, pair: &Pair, amount_coin: f64) -> MyResult<()> {
         debug!("{}", "send market sell order".blue());
         let new_order = NewOrder::new_market_sell_order(pair, amount_coin);
         let order = self
@@ -854,7 +831,7 @@ where
     }
 
     // 指値売り注文
-    async fn sell(&self, pair: &Pair, rate: f64, amount_coin: f64) -> Result<(), Box<dyn Error>> {
+    async fn sell(&self, pair: &Pair, rate: f64, amount_coin: f64) -> MyResult<()> {
         let req = NewOrder::new_sell_order(pair, rate, amount_coin);
         let sell_order = self.coincheck_client.post_exchange_orders(&req).await?;
         debug!(
@@ -894,7 +871,7 @@ where
     }
 
     // 注文キャンセル
-    async fn cancel(&self, open_order_id: u64) -> Result<(), Box<dyn Error>> {
+    async fn cancel(&self, open_order_id: u64) -> MyResult<()> {
         debug!("{}", "cancel".blue());
         let cancel_id = self
             .coincheck_client

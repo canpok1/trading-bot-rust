@@ -1,5 +1,6 @@
-use crate::error;
-use std::error::Error;
+use crate::error::MyError::ParseError;
+use crate::error::MyResult;
+
 use std::fmt;
 
 use chrono::DateTime;
@@ -13,7 +14,7 @@ pub struct Pair {
 }
 
 impl Pair {
-    pub fn new(p: &str) -> Result<Pair, Box<dyn Error>> {
+    pub fn new(p: &str) -> MyResult<Pair> {
         let splited: Vec<&str> = p.split("_").collect();
         let pair = Pair {
             key: splited[0].to_string(),
@@ -36,13 +37,13 @@ pub enum OrderType {
 }
 
 impl OrderType {
-    pub fn parse(t: &str) -> Result<OrderType, Box<dyn Error>> {
+    pub fn parse(t: &str) -> MyResult<OrderType> {
         match t {
             "sell" => Ok(OrderType::Sell),
             "buy" => Ok(OrderType::Buy),
             "market_sell" => Ok(OrderType::MarketSell),
             "market_buy" => Ok(OrderType::MarketBuy),
-            _ => Err(Box::new(error::Error::ParseError(t.to_owned()))),
+            _ => Err(Box::new(ParseError(t.to_owned()))),
         }
     }
 

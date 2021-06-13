@@ -1,7 +1,7 @@
-use serde::Deserialize;
+use std::error::Error;
 
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
+pub enum MyError {
     #[error("failed to parse from {0}")]
     ParseError(String),
 
@@ -15,8 +15,4 @@ pub enum Error {
     ErrorResponse { message: String, request: String },
 }
 
-#[derive(Deserialize, Debug)]
-pub enum OrderType {
-    Sell,
-    Buy,
-}
+pub type MyResult<T> = Result<T, Box<dyn Error>>;

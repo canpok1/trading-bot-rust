@@ -1,8 +1,7 @@
 use crate::coincheck::model::*;
-use crate::error::Error::TooShort;
+use crate::error::MyError::TooShort;
+use crate::error::MyResult;
 use crate::Config;
-
-use std::error::Error;
 
 use colored::Colorize;
 use log::debug;
@@ -93,7 +92,7 @@ impl TradeInfo {
         rate_histories: &Vec<f64>,
         period: usize,
         offset: usize,
-    ) -> Result<Vec<f64>, Box<dyn Error>> {
+    ) -> MyResult<Vec<f64>> {
         let history_size = rate_histories.len();
         if history_size < period + offset {
             return Err(Box::new(TooShort {
@@ -135,7 +134,7 @@ impl TradeInfo {
         rate_histories: &Vec<f64>,
         period: usize,
         offset: usize,
-    ) -> Result<Vec<f64>, Box<dyn Error>> {
+    ) -> MyResult<Vec<f64>> {
         let history_size = rate_histories.len();
         if history_size < period + offset {
             return Err(Box::new(TooShort {

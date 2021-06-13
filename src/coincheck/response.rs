@@ -1,7 +1,7 @@
 use super::model;
+use crate::error::MyResult;
 
 use std::collections::HashMap;
-use std::error::Error;
 
 use chrono::DateTime;
 use serde::Deserialize;
@@ -34,7 +34,7 @@ pub struct OrdersPostResponse {
 }
 
 impl OrdersPostResponse {
-    pub fn to_model(&self) -> Result<model::Order, Box<dyn Error>> {
+    pub fn to_model(&self) -> MyResult<model::Order> {
         let id = self
             .id
             .ok_or_else(|| "id is nothing, this field is required")?;
@@ -98,7 +98,7 @@ pub struct OpenOrder {
 }
 
 impl OpenOrder {
-    pub fn to_model(&self) -> Result<model::OpenOrder, Box<dyn Error>> {
+    pub fn to_model(&self) -> MyResult<model::OpenOrder> {
         Ok(model::OpenOrder {
             id: self.id,
             rate: self.rate.parse()?,
@@ -154,7 +154,7 @@ pub struct BalanceGetResponse {
 }
 
 impl BalanceGetResponse {
-    pub fn to_map(&self) -> Result<HashMap<String, model::Balance>, Box<dyn Error>> {
+    pub fn to_map(&self) -> MyResult<HashMap<String, model::Balance>> {
         let mut map: HashMap<String, model::Balance> = HashMap::new();
 
         map.insert(

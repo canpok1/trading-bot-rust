@@ -4,9 +4,10 @@ use crate::coincheck::request::OrdersPostRequest;
 use crate::coincheck::response::OrdersCancelStatusGetResponse;
 use crate::coincheck::response::OrdersDeleteResponse;
 use crate::coincheck::response::*;
+use crate::error::MyError::{ErrorResponse, ParseError};
+use crate::error::MyResult;
 
 use std::collections::HashMap;
-use std::error::Error;
 use std::time::SystemTime;
 
 use async_trait::async_trait;
@@ -20,21 +21,17 @@ const BASE_URL: &str = "https://coincheck.com";
 
 #[async_trait]
 pub trait Client {
-    async fn get_exchange_orders_rate(
-        &self,
-        t: OrderType,
-        pair: &str,
-    ) -> Result<f64, Box<dyn Error>>;
+    async fn get_exchange_orders_rate(&self, t: OrderType, pair: &str) -> MyResult<f64>;
 
-    async fn post_exchange_orders(&self, req: &NewOrder) -> Result<Order, Box<dyn Error>>;
+    async fn post_exchange_orders(&self, req: &NewOrder) -> MyResult<Order>;
 
-    async fn get_exchange_orders_opens(&self) -> Result<Vec<OpenOrder>, Box<dyn Error>>;
+    async fn get_exchange_orders_opens(&self) -> MyResult<Vec<OpenOrder>>;
 
-    async fn delete_exchange_orders(&self, id: u64) -> Result<u64, Box<dyn Error>>;
+    async fn delete_exchange_orders(&self, id: u64) -> MyResult<u64>;
 
-    async fn get_exchange_orders_cancel_status(&self, id: u64) -> Result<bool, Box<dyn Error>>;
+    async fn get_exchange_orders_cancel_status(&self, id: u64) -> MyResult<bool>;
 
-    async fn get_accounts_balance(&self) -> Result<HashMap<String, Balance>, Box<dyn Error>>;
+    async fn get_accounts_balance(&self) -> MyResult<HashMap<String, Balance>>;
 }
 
 #[derive(Debug)]
@@ -46,11 +43,7 @@ pub struct DefaultClient {
 
 #[async_trait]
 impl Client for DefaultClient {
-    async fn get_exchange_orders_rate(
-        &self,
-        t: OrderType,
-        pair: &str,
-    ) -> Result<f64, Box<dyn Error>> {
+    async fn get_exchange_orders_rate(&self, t: OrderType, pair: &str) -> MyResult<f64> {
         let url = format!("{}{}", BASE_URL, "/api/exchange/orders/rate");
         let params = [("order_type", t.to_str()), ("pair", pair), ("amount", "1")];
         let body = self
@@ -65,7 +58,7 @@ impl Client for DefaultClient {
         Ok(rate)
     }
 
-    async fn post_exchange_orders(&self, req: &NewOrder) -> Result<Order, Box<dyn Error>> {
+    async fn post_exchange_orders(&self, req: &NewOrder) -> MyResult<Order> {
         let url = format!("{}{}", BASE_URL, "/api/exchange/orders");
         let req_body = OrdersPostRequest::new(req)?;
 
@@ -75,14 +68,14 @@ impl Client for DefaultClient {
         if res.success {
             Ok(res.to_model()?)
         } else {
-            Err(Box::new(crate::error::Error::ErrorResponse {
+            Err(Box::new(ErrorResponse {
                 message: res.error.unwrap(),
                 request: format!("{:?}", *req),
             }))
         }
     }
 
-    async fn get_exchange_orders_opens(&self) -> Result<Vec<OpenOrder>, Box<dyn Error>> {
+    async fn get_exchange_orders_opens(&self) -> MyResult<Vec<OpenOrder>> {
         let url = format!("{}{}", BASE_URL, "/api/exchange/orders/opens");
         let body = self
             .get_request_with_auth::<OrdersOpensGetResponse>(&url)
@@ -95,7 +88,7 @@ impl Client for DefaultClient {
         Ok(res)
     }
 
-    async fn delete_exchange_orders(&self, id: u64) -> Result<u64, Box<dyn Error>> {
+    async fn delete_exchange_orders(&self, id: u64) -> MyResult<u64> {
         let url = format!("{}{}{}", BASE_URL, "/api/exchange/orders/", id);
         let body = self
             .delete_request_with_auth::<OrdersDeleteResponse>(&url)
@@ -103,7 +96,7 @@ impl Client for DefaultClient {
         Ok(body.id)
     }
 
-    async fn get_exchange_orders_cancel_status(&self, id: u64) -> Result<bool, Box<dyn Error>> {
+    async fn get_exchange_orders_cancel_status(&self, id: u64) -> MyResult<bool> {
         let url: String = format!(
             "{}{}{}",
             BASE_URL, "/api/exchange/orders/cancel_status?id=", id
@@ -114,7 +107,7 @@ impl Client for DefaultClient {
         Ok(body.cancel)
     }
 
-    async fn get_accounts_balance(&self) -> Result<HashMap<String, Balance>, Box<dyn Error>> {
+    async fn get_accounts_balance(&self) -> MyResult<HashMap<String, Balance>> {
         let url: String = format!("{}{}", BASE_URL, "/api/accounts/balance");
         let body = self
             .get_request_with_auth::<BalanceGetResponse>(&url)
@@ -124,7 +117,7 @@ impl Client for DefaultClient {
 }
 
 impl DefaultClient {
-    pub fn new(access_key: &str, secret_key: &str) -> Result<DefaultClient, reqwest::Error> {
+    pub fn new(access_key: &str, secret_key: &str) -> MyResult<DefaultClient> {
         let client = reqwest::Client::builder().build()?;
         Ok(DefaultClient {
             client: client,
@@ -133,10 +126,7 @@ impl DefaultClient {
         })
     }
 
-    async fn get_request_with_auth<T: DeserializeOwned>(
-        &self,
-        url: &str,
-    ) -> Result<T, Box<dyn Error>> {
+    async fn get_request_with_auth<T: DeserializeOwned>(&self, url: &str) -> MyResult<T> {
         let nonce = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_millis();
@@ -155,11 +145,11 @@ impl DefaultClient {
 
         match serde_json::from_str::<T>(&res_text) {
             Ok(res) => Ok(res),
-            Err(_) => Err(Box::new(crate::error::Error::ParseError(res_text))),
+            Err(_) => Err(Box::new(ParseError(res_text))),
         }
     }
 
-    async fn post_request_with_auth<T, U>(&self, url: &str, body: T) -> Result<U, Box<dyn Error>>
+    async fn post_request_with_auth<T, U>(&self, url: &str, body: T) -> MyResult<U>
     where
         T: Serialize,
         U: DeserializeOwned,
@@ -185,14 +175,11 @@ impl DefaultClient {
 
         match serde_json::from_str::<U>(&res_text) {
             Ok(res) => Ok(res),
-            Err(_) => Err(Box::new(crate::error::Error::ParseError(res_text))),
+            Err(_) => Err(Box::new(ParseError(res_text))),
         }
     }
 
-    async fn delete_request_with_auth<T: DeserializeOwned>(
-        &self,
-        url: &str,
-    ) -> Result<T, Box<dyn Error>> {
+    async fn delete_request_with_auth<T: DeserializeOwned>(&self, url: &str) -> MyResult<T> {
         let nonce = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_millis();
@@ -211,7 +198,7 @@ impl DefaultClient {
 
         match serde_json::from_str::<T>(&res_text) {
             Ok(res) => Ok(res),
-            Err(_) => Err(Box::new(crate::error::Error::ParseError(res_text))),
+            Err(_) => Err(Box::new(ParseError(res_text))),
         }
     }
 }

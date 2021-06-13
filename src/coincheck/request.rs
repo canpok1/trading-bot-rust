@@ -1,7 +1,7 @@
 use crate::coincheck::model;
+use crate::error::MyResult;
 use crate::util::to_request_string;
 use serde::Serialize;
-use std::error::Error;
 
 // 新規注文
 // POST /api/exchange/orders
@@ -24,7 +24,7 @@ pub struct OrdersPostRequest {
 }
 
 impl OrdersPostRequest {
-    pub fn new(order: &model::NewOrder) -> Result<OrdersPostRequest, Box<dyn Error>> {
+    pub fn new(order: &model::NewOrder) -> MyResult<OrdersPostRequest> {
         let rate = if let Some(v) = order.rate {
             Some(to_request_string(v))
         } else {
