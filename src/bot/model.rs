@@ -1,5 +1,5 @@
 use crate::coincheck::model::Pair;
-use crate::TextMessage;
+use crate::slack::client::TextMessage;
 
 #[derive(Debug)]
 pub struct EntryParam {

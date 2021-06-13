@@ -7,4 +7,4 @@ env_files = [
 
 [tasks.run]
 command = "cargo"
-args = ["run"]
+args = ["run", "--bin", "bot"]

@@ -1,14 +1,14 @@
 use crate::bot::analyze::{SignalChecker, TradeInfo};
-use crate::bot::model::AvgDownParam;
-use crate::bot::model::NotifyParam;
-use crate::bot::model::{ActionType, EntryParam, LossCutParam, SellParam};
+use crate::bot::model::{
+    ActionType, AvgDownParam, EntryParam, LossCutParam, NotifyParam, SellParam,
+};
 use crate::coincheck;
 use crate::coincheck::model::{Balance, NewOrder, OpenOrder, OrderType, Pair};
 use crate::error::MyResult;
 use crate::mysql;
 use crate::mysql::model::{BotStatus, Event, EventType, MarketsMethods};
 use crate::slack;
-use crate::TextMessage;
+use crate::slack::client::TextMessage;
 use std::collections::HashMap;
 
 use chrono::{Duration, Utc};
@@ -758,8 +758,10 @@ where
             if contracted {
                 break;
             }
-            // 約定待ちのため1秒待つ
-            thread::sleep(time::Duration::from_secs(1));
+            // 約定待ち
+            thread::sleep(time::Duration::from_secs(
+                self.config.external_service_wait_interval_sec,
+            ));
         }
 
         let event = Event {
@@ -791,8 +793,10 @@ where
             if amount > 0.0 {
                 break amount;
             }
-            // 残高反映待ちのため1秒待つ
-            thread::sleep(time::Duration::from_secs(1));
+            // 残高反映待ち
+            thread::sleep(time::Duration::from_secs(
+                self.config.external_service_wait_interval_sec,
+            ));
         };
 
         Ok(amount_coin)
@@ -888,8 +892,10 @@ where
             if canceled {
                 break;
             }
-            // キャンセル待ちのため1秒待つ
-            thread::sleep(time::Duration::from_secs(1));
+            // キャンセル待ち
+            thread::sleep(time::Duration::from_secs(
+                self.config.external_service_wait_interval_sec,
+            ));
         }
 
         Ok(())

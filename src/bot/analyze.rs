@@ -1,7 +1,7 @@
 use crate::coincheck::model::*;
+use crate::config::Config;
 use crate::error::MyError::TooShort;
 use crate::error::MyResult;
-use crate::Config;
 
 use colored::Colorize;
 use log::debug;

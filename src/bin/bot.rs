@@ -1,15 +1,10 @@
-pub mod bot;
-pub mod coincheck;
-pub mod config;
-pub mod error;
-pub mod mysql;
-pub mod slack;
-pub mod util;
+use trading_bot_rust::bot::analyze::SignalChecker;
+use trading_bot_rust::bot::base::Bot;
+use trading_bot_rust::coincheck;
+use trading_bot_rust::config::Config;
+use trading_bot_rust::mysql;
+use trading_bot_rust::slack;
 
-use crate::bot::analyze::SignalChecker;
-use crate::bot::base::Bot;
-use crate::config::Config;
-use crate::slack::client::TextMessage;
 use env_logger;
 use log::{error, info};
 

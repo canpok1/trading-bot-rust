@@ -1,5 +1,5 @@
 [package]
-name = "trading-bot-rust"
+name = "trading_bot_rust"
 version = "0.1.0"
 authors = ["canpok1 <6isstrong@gmail.com>"]
 edition = "2018"

@@ -10,6 +10,8 @@ pub struct Config {
     pub interval_sec: u64,
     // レート取得期間
     pub rate_period_minutes: i64,
+    // 外部サービスの処理待ち間隔（秒）
+    pub external_service_wait_interval_sec: u64,
     // デモモード
     pub demo_mode: bool,
 
