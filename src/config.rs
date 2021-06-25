@@ -15,6 +15,11 @@ pub struct Config {
     // デモモード
     pub demo_mode: bool,
 
+    // 単純移動平均の期間（短期）
+    pub sma_period_short: usize,
+    // 単純移動平均の期間（長期）
+    pub sma_period_long: usize,
+
     // レジスタンスライン作成に必要な期間
     pub resistance_line_period: usize,
     // レジスタンスライン作成のオフセット

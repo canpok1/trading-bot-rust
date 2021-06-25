@@ -242,6 +242,19 @@ impl TradeInfo {
         }
     }
 
+    pub fn sma(&self, period: usize) -> MyResult<f64> {
+        if self.rate_histories.len() < period {
+            Err(Box::new(TooShort {
+                len: self.rate_histories.len(),
+                required: period,
+            }))
+        } else {
+            let begin = self.rate_histories.len() - period;
+            let sum: f64 = self.rate_histories[begin..].iter().sum();
+            Ok(sum / (period as f64))
+        }
+    }
+
     fn line_fit(x: &Vec<f64>, y: &Vec<f64>) -> (f64, f64) {
         let ndata = x.len();
         if ndata < 2 {

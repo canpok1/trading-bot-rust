@@ -370,6 +370,30 @@ where
             );
         }
 
+        // 長期トレンドが下降トレンドならスキップ
+        // 移動平均の短期が長期より下なら下降トレンドと判断
+        let sma_short = info.sma(self.config.sma_period_short)?;
+        let sma_long = info.sma(self.config.sma_period_long)?;
+        if sma_short < sma_long {
+            info!(
+                "{} entry check (sma short:{} < sma long:{})(period short:{},long:{})",
+                "SKIP".red(),
+                format!("{:.3}", sma_short).yellow(),
+                format!("{:.3}", sma_long).yellow(),
+                format!("{}", self.config.sma_period_short).yellow(),
+                format!("{}", self.config.sma_period_long).yellow(),
+            );
+            return Ok(true);
+        }
+        debug!(
+            "{}",
+            format!(
+                "NOT SKIP entry check (sma short:{:.3} < sma long:{:.3})(period short:{},long:{})",
+                sma_short, sma_long, self.config.sma_period_short, self.config.sma_period_long,
+            )
+            .blue()
+        );
+
         // 短期の売りと買いの出来高差が一定以上ならスキップ
         let mut sell_volume = 0.0;
         for (i, v) in info.sell_volumes.iter().rev().enumerate() {

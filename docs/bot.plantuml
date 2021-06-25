@@ -35,6 +35,7 @@ repeat
         endif
 
         if (未決済注文のレート) then (現レートとの差が一定未満)
+        elseif (長期トレンド) then (下降トレンド)
         elseif (短期売り出来高) then (一定以上)
         elseif (短期レジスタンスライン) then (ブレイクアウト)
             :行動リストにエントリー追加;
