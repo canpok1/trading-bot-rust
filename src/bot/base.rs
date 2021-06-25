@@ -9,6 +9,7 @@ use crate::mysql;
 use crate::mysql::model::{BotStatus, Event, EventType, MarketsMethods};
 use crate::slack;
 use crate::slack::client::TextMessage;
+use chrono::DateTime;
 use std::collections::HashMap;
 
 use chrono::{Duration, Utc};
@@ -43,8 +44,8 @@ where
         Ok(())
     }
 
-    pub async fn trade(&self) -> MyResult<()> {
-        let info = self.fetch().await?;
+    pub async fn trade(&self, now: &DateTime<Utc>) -> MyResult<()> {
+        let info = self.fetch(now).await?;
         info!(
             "{}",
             format!(
@@ -66,7 +67,7 @@ where
         Ok(())
     }
 
-    async fn fetch(&self) -> MyResult<TradeInfo> {
+    async fn fetch(&self, now: &DateTime<Utc>) -> MyResult<TradeInfo> {
         let pair = Pair::new(&self.config.target_pair)?;
         let sell_rate = self
             .coincheck_client
@@ -82,7 +83,7 @@ where
         let balance_key = self.fetch_balance_key(&balances)?;
         let balance_settlement = self.fetch_balance_settlement(&balances)?;
 
-        let begin = Utc::now() - Duration::minutes(self.config.rate_period_minutes);
+        let begin = *now - Duration::minutes(self.config.rate_period_minutes);
         let markets = self
             .mysql_client
             .select_markets(&self.config.target_pair, begin)?;

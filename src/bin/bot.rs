@@ -1,3 +1,4 @@
+use chrono::Utc;
 use trading_bot_rust::bot::analyze::SignalChecker;
 use trading_bot_rust::bot::base::Bot;
 use trading_bot_rust::coincheck;
@@ -82,7 +83,8 @@ async fn main() {
     };
 
     loop {
-        if let Err(err) = bot.trade().await {
+        let now = Utc::now();
+        if let Err(err) = bot.trade(&now).await {
             error!("{:?}", err);
         }
         if let Err(err) = bot.wait() {
