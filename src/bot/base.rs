@@ -249,7 +249,6 @@ where
         let mut action_types = self.check_loss_cut_or_avg_down(info)?;
         if !action_types.is_empty() {
             params.append(&mut action_types);
-            return Ok(params);
         }
 
         let skip = self.check_entry_skip(info)?;
@@ -314,6 +313,12 @@ where
                             open_order_id: open_order.id,
                             amount: open_order.pending_amount,
                         }));
+                        info!(
+                            "{} (lower:{:.3} > sell rate:{:.3})",
+                            "Loss Cut".red(),
+                            lower,
+                            info.sell_rate
+                        );
                         continue;
                     }
                     // ナンピン？
@@ -331,6 +336,12 @@ where
                             open_order_rate: open_order.rate,
                             open_order_amount: open_order.pending_amount,
                         }));
+                        info!(
+                            "{} (lower:{:.3} > sell rate:{:.3})",
+                            "AVG Down".red(),
+                            lower,
+                            info.sell_rate
+                        );
                         continue;
                     }
                 }
@@ -341,6 +352,30 @@ where
     }
 
     fn check_entry_skip(&self, info: &TradeInfo) -> MyResult<bool> {
+        // 長期トレンドが下降トレンドならスキップ
+        // 移動平均の短期が長期より下なら下降トレンドと判断
+        let sma_short = info.sma(self.config.sma_period_short)?;
+        let sma_long = info.sma(self.config.sma_period_long)?;
+        if sma_short < sma_long {
+            info!(
+                "{} entry check (sma short:{} < sma long:{})(period short:{},long:{})",
+                "SKIP".red(),
+                format!("{:.3}", sma_short).yellow(),
+                format!("{:.3}", sma_long).yellow(),
+                format!("{}", self.config.sma_period_short).yellow(),
+                format!("{}", self.config.sma_period_long).yellow(),
+            );
+            return Ok(true);
+        }
+        debug!(
+            "{}",
+            format!(
+                "NOT SKIP entry check (sma short:{:.3} < sma long:{:.3})(period short:{},long:{})",
+                sma_short, sma_long, self.config.sma_period_short, self.config.sma_period_long,
+            )
+            .blue()
+        );
+
         // 未決済注文のレートが現レートとあまり離れてないならスキップ
         if !info.open_orders.is_empty() {
             let mut lower_rate = 0.0;
@@ -369,30 +404,6 @@ where
                 .blue()
             );
         }
-
-        // 長期トレンドが下降トレンドならスキップ
-        // 移動平均の短期が長期より下なら下降トレンドと判断
-        let sma_short = info.sma(self.config.sma_period_short)?;
-        let sma_long = info.sma(self.config.sma_period_long)?;
-        if sma_short < sma_long {
-            info!(
-                "{} entry check (sma short:{} < sma long:{})(period short:{},long:{})",
-                "SKIP".red(),
-                format!("{:.3}", sma_short).yellow(),
-                format!("{:.3}", sma_long).yellow(),
-                format!("{}", self.config.sma_period_short).yellow(),
-                format!("{}", self.config.sma_period_long).yellow(),
-            );
-            return Ok(true);
-        }
-        debug!(
-            "{}",
-            format!(
-                "NOT SKIP entry check (sma short:{:.3} < sma long:{:.3})(period short:{},long:{})",
-                sma_short, sma_long, self.config.sma_period_short, self.config.sma_period_long,
-            )
-            .blue()
-        );
 
         // 短期の売りと買いの出来高差が一定以上ならスキップ
         let mut sell_volume = 0.0;
