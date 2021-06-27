@@ -370,7 +370,7 @@ where
         debug!(
             "{}",
             format!(
-                "NOT SKIP entry check (sma short:{:.3} < sma long:{:.3})(period short:{},long:{})",
+                "NOT SKIP entry check (sma short:{:.3} >= sma long:{:.3})(period short:{},long:{})",
                 sma_short, sma_long, self.config.sma_period_short, self.config.sma_period_long,
             )
             .blue()
