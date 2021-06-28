@@ -358,6 +358,8 @@ where
     }
 
     fn check_entry_skip(&self, info: &TradeInfo) -> MyResult<bool> {
+        let mut skip = false;
+
         // 長期トレンドが下降トレンドならスキップ
         // 移動平均の短期が長期より下なら下降トレンドと判断
         let sma_short = info.sma(self.config.sma_period_short)?;
@@ -371,16 +373,17 @@ where
                 format!("{}", self.config.sma_period_short).yellow(),
                 format!("{}", self.config.sma_period_long).yellow(),
             );
-            return Ok(true);
-        }
-        debug!(
-            "{}",
-            format!(
+            skip = true;
+        } else {
+            debug!(
+                "{}",
+                format!(
                 "NOT SKIP entry check (sma short:{:.3} >= sma long:{:.3})(period short:{},long:{})",
                 sma_short, sma_long, self.config.sma_period_short, self.config.sma_period_long,
             )
-            .blue()
-        );
+                .blue()
+            );
+        }
 
         // 未決済注文のレートが現レートとあまり離れてないならスキップ
         if !info.open_orders.is_empty() {
@@ -399,16 +402,17 @@ where
                     format!("{:.3}", info.sell_rate).yellow(),
                     format!("{:.3}", lower_rate).yellow(),
                 );
-                return Ok(true);
+                skip = true;
+            } else {
+                debug!(
+                    "{}",
+                    format!(
+                        "NOT SKIP entry check (sell rate:{:.3} <= lower:{:.3})",
+                        info.sell_rate, lower_rate
+                    )
+                    .blue()
+                );
             }
-            debug!(
-                "{}",
-                format!(
-                    "NOT SKIP entry check (sell rate:{:.3} <= lower:{:.3})",
-                    info.sell_rate, lower_rate
-                )
-                .blue()
-            );
         }
 
         // 短期の売りと買いの出来高差が一定以上ならスキップ
@@ -436,16 +440,17 @@ where
                 format!("{:.3}", sell_volume).yellow(),
                 format!("{:.3}", buy_volume).yellow(),
             );
-            return Ok(true);
+            skip = true;
+        } else {
+            debug!(
+                "{}",
+                format!(
+                    "NOT SKIP entry check (volume diff:{:.3} < border:{:.3})(sell:{:.3},buy:{:.3})",
+                    diff, self.config.over_sell_volume_border, sell_volume, buy_volume,
+                )
+                .blue()
+            );
         }
-        debug!(
-            "{}",
-            format!(
-                "NOT SKIP entry check (volume diff:{:.3} < border:{:.3})(sell:{:.3},buy:{:.3})",
-                diff, self.config.over_sell_volume_border, sell_volume, buy_volume,
-            )
-            .blue()
-        );
 
         // 目標レートまでの板の厚さが短期売り出来高未満ならスキップ
         let sell_rate =
@@ -453,7 +458,6 @@ where
         let mut ask_total = 0.0;
         for ask in info.order_books.asks.iter() {
             if ask.rate < sell_rate {
-                debug!("rate:{:.3}, amount:{:.3}", ask.rate, ask.amount);
                 ask_total += ask.amount;
             }
         }
@@ -466,18 +470,19 @@ where
                 format!("{:.3}", ask_total_upper).yellow(),
                 format!("{:.3}", sell_volume).yellow(),
             );
-            return Ok(true);
+            skip = true;
+        } else {
+            debug!(
+                "{}",
+                format!(
+                    "NOT SKIP entry check (ask_total:{:.3} <= upper:{:.3})(sell_volume:{:.3})",
+                    ask_total, ask_total_upper, sell_volume
+                )
+                .blue()
+            );
         }
-        debug!(
-            "{}",
-            format!(
-                "NOT SKIP entry check (ask_total:{:.3} <= upper:{:.3})(sell_volume:{:.3})",
-                ask_total, ask_total_upper, sell_volume
-            )
-            .blue()
-        );
 
-        Ok(false)
+        Ok(skip)
     }
 
     // レジスタンスラインがブレイクアウトならエントリー

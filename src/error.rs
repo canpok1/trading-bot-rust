@@ -8,8 +8,12 @@ pub enum MyError {
     #[error("record not found in {} [{}]", table, param)]
     RecordNotFound { table: String, param: String },
 
-    #[error("too short, len:{} < required:{}", len, required)]
-    TooShort { len: usize, required: usize },
+    #[error("{} is too short, len:{} < required:{}", name, len, required)]
+    TooShort {
+        name: String,
+        len: usize,
+        required: usize,
+    },
 
     #[error("response is error, {}, request:{}", message, request)]
     ErrorResponse { message: String, request: String },

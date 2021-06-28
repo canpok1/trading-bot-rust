@@ -97,6 +97,7 @@ impl TradeInfo {
         let history_size = rate_histories.len();
         if history_size < period + offset {
             return Err(Box::new(TooShort {
+                name: "rate histories".to_owned(),
                 len: history_size,
                 required: period + offset,
             }));
@@ -139,6 +140,7 @@ impl TradeInfo {
         let history_size = rate_histories.len();
         if history_size < period + offset {
             return Err(Box::new(TooShort {
+                name: "rate histories".to_owned(),
                 len: history_size,
                 required: period + offset,
             }));
@@ -246,6 +248,7 @@ impl TradeInfo {
     pub fn sma(&self, period: usize) -> MyResult<f64> {
         if self.rate_histories.len() < period {
             Err(Box::new(TooShort {
+                name: "rate histories".to_owned(),
                 len: self.rate_histories.len(),
                 required: period,
             }))
