@@ -42,6 +42,8 @@ pub struct Config {
 
     // 出来高の短期幅
     pub volume_period_short: usize,
+    // 許容する板の厚さ（短期出来高に対する割合を指定）
+    pub order_books_size_ratio: f64,
 
     // リバウンドの判定期間（どのくらい過去を見るか）
     pub rebound_check_period: usize,

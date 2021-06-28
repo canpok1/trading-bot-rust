@@ -77,6 +77,7 @@ pub struct TradeInfo {
     pub support_lines_long: Vec<f64>,
     pub support_lines_short: Vec<f64>,
     pub resistance_lines: Vec<f64>,
+    pub order_books: OrderBooks,
 }
 
 impl TradeInfo {

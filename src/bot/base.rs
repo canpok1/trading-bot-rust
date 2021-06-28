@@ -109,6 +109,11 @@ where
             self.config.resistance_line_offset,
         )?;
 
+        let order_books = self
+            .coincheck_client
+            .get_order_books(&self.config.target_pair)
+            .await?;
+
         Ok(TradeInfo {
             pair: pair,
             sell_rate: sell_rate,
@@ -122,6 +127,7 @@ where
             support_lines_long: support_lines_long,
             support_lines_short: support_lines_short,
             resistance_lines: resistance_lines,
+            order_books: order_books,
         })
     }
 
@@ -423,7 +429,7 @@ where
         let diff = sell_volume - buy_volume;
         if diff >= self.config.over_sell_volume_border {
             info!(
-                "{} entry check (diff:{} >= border:{})(sell:{},buy:{})",
+                "{} entry check (volume diff:{} >= border:{})(sell:{},buy:{})",
                 "SKIP".red(),
                 format!("{:.3}", diff).yellow(),
                 format!("{:.3}", self.config.over_sell_volume_border).yellow(),
@@ -435,8 +441,38 @@ where
         debug!(
             "{}",
             format!(
-                "NOT SKIP entry check (diff:{:.3} < border:{:.3})(sell:{:.3},buy:{:.3})",
+                "NOT SKIP entry check (volume diff:{:.3} < border:{:.3})(sell:{:.3},buy:{:.3})",
                 diff, self.config.over_sell_volume_border, sell_volume, buy_volume,
+            )
+            .blue()
+        );
+
+        // 目標レートまでの板の厚さが短期売り出来高未満ならスキップ
+        let sell_rate =
+            self.estimate_sell_rate(info, self.config.profit_ratio_per_order_on_down_trend)?;
+        let mut ask_total = 0.0;
+        for ask in info.order_books.asks.iter() {
+            if ask.rate < sell_rate {
+                debug!("rate:{:.3}, amount:{:.3}", ask.rate, ask.amount);
+                ask_total += ask.amount;
+            }
+        }
+        let ask_total_upper = sell_volume * self.config.order_books_size_ratio;
+        if ask_total > ask_total_upper {
+            info!(
+                "{} entry check (ask_total:{} > upper:{})(sell_volume:{})",
+                "SKIP".red(),
+                format!("{:.3}", ask_total).yellow(),
+                format!("{:.3}", ask_total_upper).yellow(),
+                format!("{:.3}", sell_volume).yellow(),
+            );
+            return Ok(true);
+        }
+        debug!(
+            "{}",
+            format!(
+                "NOT SKIP entry check (ask_total:{:.3} <= upper:{:.3})(sell_volume:{:.3})",
+                ask_total, ask_total_upper, sell_volume
             )
             .blue()
         );
@@ -476,7 +512,7 @@ where
     // サポートラインがリバウンドしてるならエントリー
     fn check_support_line_rebound(&self, info: &TradeInfo) -> MyResult<Option<ActionType>> {
         let signal = self.signal_checker.check_support_line_rebound(info);
-        if signal.turned_on {
+        if !signal.turned_on {
             info!("{}", signal.to_string());
             return Ok(None);
         }
@@ -514,6 +550,13 @@ where
             .select_bot_status(&self.config.bot_name, "total_jpy")?;
         let buy_jpy = total_jpy.value * self.config.funds_ratio_per_order;
         Ok(buy_jpy)
+    }
+
+    fn estimate_sell_rate(&self, info: &TradeInfo, profit_ratio: f64) -> MyResult<f64> {
+        let buy_jpy = self.calc_buy_jpy()?;
+        let amount = buy_jpy / info.buy_rate;
+        let profit = buy_jpy * profit_ratio;
+        Ok((buy_jpy + profit) / amount)
     }
 
     async fn action(&self, tt: Vec<ActionType>) -> MyResult<()> {

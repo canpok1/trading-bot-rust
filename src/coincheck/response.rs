@@ -1,10 +1,44 @@
 use super::model;
+use crate::coincheck::model::{OrderBook, OrderBooks};
 use crate::error::MyResult;
 
 use std::collections::HashMap;
 
 use chrono::DateTime;
 use serde::Deserialize;
+
+// 板情報取得
+// GET /api/order_books
+#[derive(Deserialize, Debug)]
+pub struct OrdersBooksGetResponse {
+    pub asks: Vec<Vec<String>>,
+    pub bids: Vec<Vec<String>>,
+}
+
+impl OrdersBooksGetResponse {
+    pub fn to_model(&self) -> MyResult<OrderBooks> {
+        let mut asks: Vec<OrderBook> = Vec::new();
+        for vv in self.asks.iter() {
+            asks.push(OrderBook {
+                rate: vv[0].parse()?,
+                amount: vv[1].parse()?,
+            });
+        }
+
+        let mut bids: Vec<OrderBook> = Vec::new();
+        for vv in self.bids.iter() {
+            bids.push(OrderBook {
+                rate: vv[0].parse()?,
+                amount: vv[1].parse()?,
+            });
+        }
+
+        Ok(OrderBooks {
+            asks: asks,
+            bids: bids,
+        })
+    }
+}
 
 // レート取得
 // GET /api/exchange/orders/rate

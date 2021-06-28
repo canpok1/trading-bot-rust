@@ -1,5 +1,4 @@
-use crate::coincheck::model::NewOrder;
-use crate::coincheck::model::{Balance, OpenOrder, Order, OrderType};
+use crate::coincheck::model::{Balance, NewOrder, OpenOrder, Order, OrderBooks, OrderType};
 use crate::coincheck::request::OrdersPostRequest;
 use crate::coincheck::response::OrdersCancelStatusGetResponse;
 use crate::coincheck::response::OrdersDeleteResponse;
@@ -21,6 +20,8 @@ const BASE_URL: &str = "https://coincheck.com";
 
 #[async_trait]
 pub trait Client {
+    async fn get_order_books(&self, pair: &str) -> MyResult<OrderBooks>;
+
     async fn get_exchange_orders_rate(&self, t: OrderType, pair: &str) -> MyResult<f64>;
 
     async fn post_exchange_orders(&self, req: &NewOrder) -> MyResult<Order>;
@@ -43,6 +44,20 @@ pub struct DefaultClient {
 
 #[async_trait]
 impl Client for DefaultClient {
+    async fn get_order_books(&self, pair: &str) -> MyResult<OrderBooks> {
+        let url = format!("{}{}", BASE_URL, "/api/order_books");
+        let params = [("pair", pair)];
+        let body = self
+            .client
+            .get(&url)
+            .query(&params)
+            .send()
+            .await?
+            .json::<OrdersBooksGetResponse>()
+            .await?;
+        body.to_model()
+    }
+
     async fn get_exchange_orders_rate(&self, t: OrderType, pair: &str) -> MyResult<f64> {
         let url = format!("{}{}", BASE_URL, "/api/exchange/orders/rate");
         let params = [("order_type", t.to_str()), ("pair", pair), ("amount", "1")];

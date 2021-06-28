@@ -58,6 +58,18 @@ impl OrderType {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct OrderBooks {
+    pub asks: Vec<OrderBook>,
+    pub bids: Vec<OrderBook>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct OrderBook {
+    pub rate: f64,
+    pub amount: f64,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct NewOrder {
     pub pair: String,
     pub order_type: OrderType,
