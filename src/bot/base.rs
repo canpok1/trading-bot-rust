@@ -335,9 +335,19 @@ where
                         false
                     };
                     if info.sell_rate < lower && is_riging {
+                        let buy_jpy = self.calc_buy_jpy()?;
+                        let times = (open_order.rate * open_order.pending_amount / buy_jpy) as i64;
+                        // 1, 2, 3, 4 の割合でナンピンする
+                        let market_buy_amount = if times < 2 {
+                            2.0 * buy_jpy
+                        } else if times < 3 {
+                            3.0 * buy_jpy
+                        } else {
+                            4.0 * buy_jpy
+                        };
                         actions.push(ActionType::AvgDown(AvgDownParam {
                             pair: Pair::new(&self.config.target_pair)?,
-                            market_buy_amount: self.calc_buy_jpy()?,
+                            market_buy_amount: market_buy_amount,
                             open_order_id: open_order.id,
                             open_order_rate: open_order.rate,
                             open_order_amount: open_order.pending_amount,
