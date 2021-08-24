@@ -14,7 +14,7 @@ pub trait Client {
 
     fn upsert_bot_status(&self, s: &BotStatus) -> MyResult<()>;
 
-    fn select_bot_status(&self, bot_name: &str, r#type: &str) -> MyResult<BotStatus>;
+    fn select_bot_status(&self, bot_name: &str, pair: &str, r#type: &str) -> MyResult<BotStatus>;
 
     fn insert_event(&self, event: &Event) -> MyResult<()>;
 }
@@ -89,23 +89,25 @@ impl Client for DefaultClient {
     fn upsert_bot_status(&self, s: &BotStatus) -> MyResult<()> {
         let mut conn = self.get_conn()?;
         let sql = format!(
-            "INSERT INTO bot_statuses (bot_name, type, value, memo) VALUES ('{}', '{}', {}, '{}') ON DUPLICATE KEY UPDATE value = {};",
-            s.bot_name, s.r#type, s.value, s.memo, s.value
+                "INSERT INTO bot_statuses (bot_name, pair, type, value, memo) VALUES ('{}', '{}', '{}', {}, '{}') ON DUPLICATE KEY UPDATE value = {};",
+                s.bot_name, s.pair, s.r#type, s.value, s.memo, s.value
         );
+
         conn.query_drop(sql)?;
         Ok(())
     }
 
-    fn select_bot_status(&self, bot_name: &str, r#type: &str) -> MyResult<BotStatus> {
+    fn select_bot_status(&self, bot_name: &str, pair: &str, r#type: &str) -> MyResult<BotStatus> {
         let mut conn = self.get_conn()?;
 
         let sql = format!(
-            "SELECT bot_name, type, value, memo FROM bot_statuses WHERE bot_name = '{}' AND type = '{}'",
-            bot_name, r#type,
-        );
-        if let Some((bot_name, r#type, value, memo)) = conn.query_first(sql)? {
+                "SELECT bot_name, pair, type, value, memo FROM bot_statuses WHERE bot_name = '{}' AND pair = '{}' AND type = '{}'",
+                bot_name, pair, r#type,
+            );
+        if let Some((bot_name, pair, r#type, value, memo)) = conn.query_first(sql)? {
             Ok(BotStatus {
                 bot_name: bot_name,
+                pair: pair,
                 r#type: r#type,
                 value: value,
                 memo: memo,

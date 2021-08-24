@@ -169,6 +169,7 @@ where
         };
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
+            pair: info.pair.to_string(),
             r#type: "sell_rate".to_owned(),
             value: v,
             memo: "約定待ちの売注文レート".to_owned(),
@@ -179,6 +180,7 @@ where
         let resistance_line = info.resistance_lines.last().unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
+            pair: info.pair.to_string(),
             r#type: "resistance_line_value".to_owned(),
             value: resistance_line.to_owned(),
             memo: "レジスタンスラインの現在値".to_owned(),
@@ -187,6 +189,7 @@ where
         let resistance_lines_before = info.resistance_lines.get(rates_size - 2).unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
+            pair: info.pair.to_string(),
             r#type: "resistance_line_slope".to_owned(),
             value: resistance_line - resistance_lines_before,
             memo: "レジスタンスラインの傾き".to_owned(),
@@ -195,6 +198,7 @@ where
         let support_line = info.support_lines_long.last().unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
+            pair: info.pair.to_string(),
             r#type: "support_line_value".to_owned(),
             value: support_line.to_owned(),
             memo: "サポートライン（長期）の現在値".to_owned(),
@@ -203,6 +207,7 @@ where
         let support_lines_before = info.support_lines_long.get(rates_size - 2).unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
+            pair: info.pair.to_string(),
             r#type: "support_line_slope".to_owned(),
             value: support_line - support_lines_before,
             memo: "サポートライン（長期）の傾き".to_owned(),
@@ -211,6 +216,7 @@ where
         let support_line = info.support_lines_short.last().unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
+            pair: info.pair.to_string(),
             r#type: "support_line_short_value".to_owned(),
             value: support_line.to_owned(),
             memo: "サポートライン（短期）の現在値".to_owned(),
@@ -219,23 +225,26 @@ where
         let support_lines_before = info.support_lines_short.get(rates_size - 2).unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
+            pair: info.pair.to_string(),
             r#type: "support_line_short_slope".to_owned(),
             value: support_line - support_lines_before,
             memo: "サポートライン（短期）の傾き".to_owned(),
         })?;
 
         let total_balance_jpy = info.calc_total_balance_jpy();
-        let total_jpy = match self
-            .mysql_client
-            .select_bot_status(&self.config.bot_name, "total_jpy")
-        {
-            Ok(v) => v.value,
-            Err(_) => 0.0,
-        };
+        let total_jpy =
+            match self
+                .mysql_client
+                .select_bot_status(&self.config.bot_name, "all", "total_jpy")
+            {
+                Ok(v) => v.value,
+                Err(_) => 0.0,
+            };
 
         if !info.has_position() || total_jpy < total_balance_jpy {
             self.mysql_client.upsert_bot_status(&BotStatus {
                 bot_name: self.config.bot_name.to_owned(),
+                pair: "all".to_owned(),
                 r#type: "total_jpy".to_owned(),
                 value: total_balance_jpy,
                 memo: "残高（JPY）".to_owned(),
@@ -560,9 +569,9 @@ where
     }
 
     fn calc_buy_jpy(&self) -> MyResult<f64> {
-        let total_jpy = self
-            .mysql_client
-            .select_bot_status(&self.config.bot_name, "total_jpy")?;
+        let total_jpy =
+            self.mysql_client
+                .select_bot_status(&self.config.bot_name, "all", "total_jpy")?;
         let buy_jpy = total_jpy.value * self.config.funds_ratio_per_order;
         Ok(buy_jpy)
     }

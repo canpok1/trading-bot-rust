@@ -36,6 +36,7 @@ impl MarketsMethods for Markets {
 #[derive(Debug)]
 pub struct BotStatus {
     pub bot_name: String,
+    pub pair: String,
     pub r#type: String,
     pub value: f64,
     pub memo: String,
