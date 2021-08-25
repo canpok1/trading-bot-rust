@@ -51,12 +51,12 @@ where
             format!(
                 "{} sell:{:.3} buy:{:.3} {}[{}] {}[{}]",
                 info.pair.to_string(),
-                info.sell_rate,
+                info.get_sell_rate(),
                 info.buy_rate,
                 info.pair.key,
-                info.balance_key,
+                info.get_balance_key(),
                 info.pair.settlement,
-                info.balance_settlement,
+                info.get_balance_settlement(),
             )
             .yellow(),
         );
@@ -69,19 +69,24 @@ where
 
     async fn fetch(&self, now: &DateTime<Utc>) -> MyResult<TradeInfo> {
         let pair = Pair::new(&self.config.target_pair)?;
-        let sell_rate = self
-            .coincheck_client
-            .get_exchange_orders_rate(OrderType::Sell, &self.config.target_pair)
-            .await?;
         let buy_rate = self
             .coincheck_client
             .get_exchange_orders_rate(OrderType::Buy, &self.config.target_pair)
             .await?;
 
         let balances = self.coincheck_client.get_accounts_balance().await?;
-
-        let balance_key = self.fetch_balance_key(&balances)?;
-        let balance_settlement = self.fetch_balance_settlement(&balances)?;
+        let mut sell_rates: HashMap<String, f64> = HashMap::new();
+        for (k, _v) in balances.iter() {
+            if k == &pair.settlement {
+                continue;
+            }
+            let p = format!("{}_{}", k, &pair.settlement);
+            let r = self
+                .coincheck_client
+                .get_exchange_orders_rate(OrderType::Sell, &p)
+                .await?;
+            sell_rates.insert(p, r);
+        }
 
         let begin = *now - Duration::minutes(self.config.rate_period_minutes);
         let markets = self
@@ -116,10 +121,9 @@ where
 
         Ok(TradeInfo {
             pair: pair,
-            sell_rate: sell_rate,
+            sell_rates: sell_rates,
             buy_rate: buy_rate,
-            balance_key: balance_key,
-            balance_settlement: balance_settlement,
+            balances: balances,
             open_orders: open_orders,
             rate_histories: rate_histories,
             sell_volumes: sell_volumes,
@@ -131,16 +135,16 @@ where
         })
     }
 
-    fn fetch_balance_key(&self, balances: &HashMap<String, Balance>) -> MyResult<Balance> {
-        let key = self.config.key_currency();
-        let balance = balances
-            .get(&key)
-            .ok_or(format!("balance {} is empty", key))?;
-        Ok(Balance {
-            amount: balance.amount,
-            reserved: balance.reserved,
-        })
-    }
+    // fn fetch_balance_key(&self, balances: &HashMap<String, Balance>) -> MyResult<Balance> {
+    //     let key = self.config.key_currency();
+    //     let balance = balances
+    //         .get(&key)
+    //         .ok_or(format!("balance {} is empty", key))?;
+    //     Ok(Balance {
+    //         amount: balance.amount,
+    //         reserved: balance.reserved,
+    //     })
+    // }
 
     fn fetch_balance_settlement(&self, balances: &HashMap<String, Balance>) -> MyResult<Balance> {
         let settlement = self.config.settlement_currency();
@@ -283,12 +287,13 @@ where
     // 未使用コインが一定以上なら通知
     fn check_unused_coin(&self, info: &TradeInfo) -> MyResult<Option<ActionType>> {
         let border = 1.0;
-        if info.balance_key.amount < border {
+        if info.get_balance_key().amount < border {
             debug!(
                 "{}",
                 format!(
                     "has not unused coin (coin:{:.3} < border:{:.3})",
-                    info.balance_key.amount, border
+                    info.get_balance_key().amount,
+                    border
                 )
                 .blue(),
             );
@@ -296,14 +301,14 @@ where
         }
         info!(
             "has unused coin (coin:{} > border:{})",
-            format!("{:.3}", info.balance_key.amount).yellow(),
+            format!("{:.3}", info.get_balance_key().amount).yellow(),
             format!("{:.3}", border).yellow(),
         );
 
         let message = format!(
             "unused coin exist ({} {})",
             self.config.key_currency(),
-            info.balance_key.amount
+            info.get_balance_key().amount
         );
         let action = ActionType::Notify(NotifyParam {
             log_message: message.to_string(),
@@ -322,7 +327,7 @@ where
                 OrderType::Sell => {
                     // 損切り？
                     let lower = open_order.rate * self.config.loss_cut_rate_ratio;
-                    if info.sell_rate < lower {
+                    if *info.get_sell_rate() < lower {
                         actions.push(ActionType::LossCut(LossCutParam {
                             pair: Pair::new(&self.config.target_pair)?,
                             open_order_id: open_order.id,
@@ -332,7 +337,7 @@ where
                             "{} (lower:{:.3} > sell rate:{:.3})",
                             "Loss Cut".red(),
                             lower,
-                            info.sell_rate
+                            info.get_sell_rate()
                         );
                         continue;
                     }
@@ -343,7 +348,7 @@ where
                     } else {
                         false
                     };
-                    if info.sell_rate < lower && is_riging {
+                    if *info.get_sell_rate() < lower && is_riging {
                         let buy_jpy = self.calc_buy_jpy()?;
                         let times = (open_order.rate * open_order.pending_amount / buy_jpy) as i64;
                         // 1, 2, 3, 4 の割合でナンピンする
@@ -365,7 +370,7 @@ where
                             "{} (lower:{:.3} > sell rate:{:.3})",
                             "AVG Down".red(),
                             lower,
-                            info.sell_rate
+                            *info.get_sell_rate()
                         );
                         continue;
                     }
@@ -414,11 +419,11 @@ where
             }
             lower_rate *= self.config.entry_skip_rate_ratio;
 
-            if info.sell_rate > lower_rate {
+            if *info.get_sell_rate() > lower_rate {
                 info!(
                     "{} entry check (sell rate:{} > lower_rate:{} )",
                     "SKIP".red(),
-                    format!("{:.3}", info.sell_rate).yellow(),
+                    format!("{:.3}", info.get_sell_rate()).yellow(),
                     format!("{:.3}", lower_rate).yellow(),
                 );
                 skip = true;
@@ -427,7 +432,8 @@ where
                     "{}",
                     format!(
                         "NOT SKIP entry check (sell rate:{:.3} <= lower:{:.3})",
-                        info.sell_rate, lower_rate
+                        info.get_sell_rate(),
+                        lower_rate
                     )
                     .blue()
                 );

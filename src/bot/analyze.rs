@@ -2,6 +2,7 @@ use crate::coincheck::model::*;
 use crate::config::Config;
 use crate::error::MyError::TooShort;
 use crate::error::MyResult;
+use std::collections::HashMap;
 
 use colored::Colorize;
 use log::debug;
@@ -66,10 +67,9 @@ use log::debug;
 #[derive(Debug)]
 pub struct TradeInfo {
     pub pair: Pair,
-    pub sell_rate: f64,
+    pub sell_rates: HashMap<String, f64>, // (k,v)=(pair,rate)
     pub buy_rate: f64,
-    pub balance_key: Balance,
-    pub balance_settlement: Balance,
+    pub balances: HashMap<String, Balance>, // (k,v)=(coin,balance)
     pub open_orders: Vec<OpenOrder>,
     pub rate_histories: Vec<f64>,
     pub sell_volumes: Vec<f64>,
@@ -81,12 +81,34 @@ pub struct TradeInfo {
 }
 
 impl TradeInfo {
+    pub fn get_sell_rate(&self) -> &f64 {
+        self.sell_rates.get(&self.pair.to_string()).unwrap()
+    }
+
+    pub fn get_balance_key(&self) -> &Balance {
+        self.balances.get(&self.pair.key).unwrap()
+    }
+
+    pub fn get_balance_settlement(&self) -> &Balance {
+        self.balances.get(&self.pair.settlement).unwrap()
+    }
+
     pub fn calc_total_balance_jpy(&self) -> f64 {
-        self.balance_key.total() * self.sell_rate + self.balance_settlement.total()
+        let mut total = 0.0;
+        for (k, balance) in self.balances.iter() {
+            if *k == self.pair.settlement {
+                total += balance.total();
+            } else {
+                let pair = format!("{}_{}", k, self.pair.settlement);
+                let rate = self.sell_rates.get(&pair).unwrap();
+                total += balance.total() * rate;
+            }
+        }
+        total
     }
 
     pub fn has_position(&self) -> bool {
-        self.balance_key.total() * self.sell_rate >= 1.0
+        self.get_balance_key().total() * self.get_sell_rate() >= 1.0
     }
 
     pub fn support_lines(
@@ -239,7 +261,7 @@ impl TradeInfo {
 
     pub fn is_rate_rising(&self) -> Option<bool> {
         if let Some(before_rate) = self.rate_histories.last() {
-            Some(self.sell_rate <= *before_rate)
+            Some(*self.get_sell_rate() <= *before_rate)
         } else {
             None
         }
@@ -328,8 +350,8 @@ impl SignalChecker<'_> {
         // レジスタンスライン関連の情報
         let slope = info.resistance_lines[1] - info.resistance_lines[0];
 
-        let width_upper = info.sell_rate * self.config.resistance_line_width_ratio_upper;
-        let width_lower = info.sell_rate * self.config.resistance_line_width_ratio_lower;
+        let width_upper = info.get_sell_rate() * self.config.resistance_line_width_ratio_upper;
+        let width_lower = info.get_sell_rate() * self.config.resistance_line_width_ratio_lower;
 
         let upper = info.resistance_lines.last().unwrap() + width_upper;
         let lower = info.resistance_lines.last().unwrap() + width_lower;
@@ -352,20 +374,23 @@ impl SignalChecker<'_> {
         }
 
         // 現レートがレジスタンスライン近くかをチェック
-        if info.sell_rate < lower || info.sell_rate > upper {
+        if *info.get_sell_rate() < lower || *info.get_sell_rate() > upper {
             signal.detail = format!(
                 "sell rate:{:.3} is out of range:{:.3}...{:.3}",
-                info.sell_rate, lower, upper,
+                info.get_sell_rate(),
+                lower,
+                upper,
             );
             return signal;
         }
 
         // レート上昇中かチェック
         let before_rate = *info.rate_histories.last().unwrap();
-        if info.sell_rate <= before_rate {
+        if *info.get_sell_rate() <= before_rate {
             signal.detail = format!(
                 "sell rate is not rising, sell rate:{:.3} <= before:{:.3}",
-                info.sell_rate, before_rate,
+                info.get_sell_rate(),
+                before_rate,
             );
             return signal;
         }
@@ -414,8 +439,8 @@ impl SignalChecker<'_> {
     }
 
     fn is_support_line_rebound(&self, info: &TradeInfo, lines: &Vec<f64>) -> (bool, String) {
-        let width_upper = info.sell_rate * self.config.support_line_width_ratio_upper;
-        let width_lower = info.sell_rate * self.config.support_line_width_ratio_lower;
+        let width_upper = info.get_sell_rate() * self.config.support_line_width_ratio_upper;
+        let width_lower = info.get_sell_rate() * self.config.support_line_width_ratio_lower;
         let rebounded = info.is_upper_rebound(
             lines,
             width_upper,
@@ -430,21 +455,21 @@ impl SignalChecker<'_> {
     }
 
     fn is_on_support_line(&self, info: &TradeInfo, lines: &Vec<f64>) -> (bool, String) {
-        let width_upper = info.sell_rate * self.config.support_line_width_ratio_upper;
-        let width_lower = info.sell_rate * self.config.support_line_width_ratio_lower;
+        let width_upper = info.get_sell_rate() * self.config.support_line_width_ratio_upper;
+        let width_lower = info.get_sell_rate() * self.config.support_line_width_ratio_lower;
         let upper = lines.last().unwrap() + width_upper;
         let lower = lines.last().unwrap() - width_lower;
-        let result = info.sell_rate >= lower && info.sell_rate <= upper;
+        let result = *info.get_sell_rate() >= lower && *info.get_sell_rate() <= upper;
         let message = if result {
             format!(
                 "sell rate:{} is on support line:{}",
-                format!("{:.3}", info.sell_rate),
+                format!("{:.3}", info.get_sell_rate()),
                 format!("{:.3}...{:.3}", lower, upper)
             )
         } else {
             format!(
                 "sell rate:{} is not on support line:{}",
-                format!("{:.3}", info.sell_rate),
+                format!("{:.3}", info.get_sell_rate()),
                 format!("{:.3}...{:.3}", lower, upper)
             )
         };
