@@ -51,12 +51,12 @@ where
             format!(
                 "{} sell:{:.3} buy:{:.3} {}[{}] {}[{}]",
                 info.pair.to_string(),
-                info.get_sell_rate(),
+                info.get_sell_rate()?,
                 info.buy_rate,
                 info.pair.key,
-                info.get_balance_key(),
+                info.get_balance_key()?,
                 info.pair.settlement,
-                info.get_balance_settlement(),
+                info.get_balance_settlement()?,
             )
             .yellow(),
         );
@@ -96,7 +96,12 @@ where
         let sell_volumes = markets.sell_volumes();
         let buy_volumes = markets.buy_volumes();
 
-        let open_orders = self.coincheck_client.get_exchange_orders_opens().await?;
+        let mut open_orders: Vec<OpenOrder> = vec![];
+        for o in self.coincheck_client.get_exchange_orders_opens().await? {
+            if o.pair == self.config.target_pair {
+                open_orders.push(o);
+            }
+        }
 
         let support_lines_long = TradeInfo::support_lines(
             &rate_histories,
@@ -250,7 +255,7 @@ where
                 Err(_) => 0.0,
             };
 
-        if !info.has_position() || total_jpy < total_balance_jpy {
+        if !info.has_position()? || total_jpy < total_balance_jpy {
             self.mysql_client.upsert_bot_status(&BotStatus {
                 bot_name: self.config.bot_name.to_owned(),
                 pair: "all".to_owned(),
@@ -292,12 +297,12 @@ where
     // 未使用コインが一定以上なら通知
     fn check_unused_coin(&self, info: &TradeInfo) -> MyResult<Option<ActionType>> {
         let border = 1.0;
-        if info.get_balance_key().amount < border {
+        if info.get_balance_key()?.amount < border {
             debug!(
                 "{}",
                 format!(
                     "has not unused coin (coin:{:.3} < border:{:.3})",
-                    info.get_balance_key().amount,
+                    info.get_balance_key()?.amount,
                     border
                 )
                 .blue(),
@@ -306,14 +311,14 @@ where
         }
         info!(
             "has unused coin (coin:{} > border:{})",
-            format!("{:.3}", info.get_balance_key().amount).yellow(),
+            format!("{:.3}", info.get_balance_key()?.amount).yellow(),
             format!("{:.3}", border).yellow(),
         );
 
         let message = format!(
             "unused coin exist ({} {})",
             self.config.key_currency(),
-            info.get_balance_key().amount
+            info.get_balance_key()?.amount
         );
         let action = ActionType::Notify(NotifyParam {
             log_message: message.to_string(),
@@ -332,7 +337,7 @@ where
                 OrderType::Sell => {
                     // 損切り？
                     let lower = open_order.rate * self.config.loss_cut_rate_ratio;
-                    if *info.get_sell_rate() < lower {
+                    if info.get_sell_rate()? < lower {
                         actions.push(ActionType::LossCut(LossCutParam {
                             pair: Pair::new(&self.config.target_pair)?,
                             open_order_id: open_order.id,
@@ -342,7 +347,7 @@ where
                             "{} (lower:{:.3} > sell rate:{:.3})",
                             "Loss Cut".red(),
                             lower,
-                            info.get_sell_rate()
+                            info.get_sell_rate()?
                         );
                         continue;
                     }
@@ -353,7 +358,7 @@ where
                     } else {
                         false
                     };
-                    if *info.get_sell_rate() < lower && is_riging {
+                    if info.get_sell_rate()? < lower && is_riging {
                         let buy_jpy = self.calc_buy_jpy()?;
                         let times = (open_order.rate * open_order.pending_amount / buy_jpy) as i64;
                         // 1, 2, 3, 4 の割合でナンピンする
@@ -375,7 +380,7 @@ where
                             "{} (lower:{:.3} > sell rate:{:.3})",
                             "AVG Down".red(),
                             lower,
-                            *info.get_sell_rate()
+                            info.get_sell_rate()?
                         );
                         continue;
                     }
@@ -424,11 +429,11 @@ where
             }
             lower_rate *= self.config.entry_skip_rate_ratio;
 
-            if *info.get_sell_rate() > lower_rate {
+            if info.get_sell_rate()? > lower_rate {
                 info!(
                     "{} entry check (sell rate:{} > lower_rate:{} )",
                     "SKIP".red(),
-                    format!("{:.3}", info.get_sell_rate()).yellow(),
+                    format!("{:.3}", info.get_sell_rate()?).yellow(),
                     format!("{:.3}", lower_rate).yellow(),
                 );
                 skip = true;
@@ -437,7 +442,7 @@ where
                     "{}",
                     format!(
                         "NOT SKIP entry check (sell rate:{:.3} <= lower:{:.3})",
-                        info.get_sell_rate(),
+                        info.get_sell_rate()?,
                         lower_rate
                     )
                     .blue()
@@ -519,7 +524,7 @@ where
 
     // レジスタンスラインがブレイクアウトならエントリー
     fn check_resistance_line_breakout(&self, info: &TradeInfo) -> MyResult<Option<ActionType>> {
-        let signal = self.signal_checker.check_resistance_line_breakout(info);
+        let signal = self.signal_checker.check_resistance_line_breakout(info)?;
 
         if !signal.turned_on {
             info!("{}", signal.to_string());
@@ -548,7 +553,7 @@ where
 
     // サポートラインがリバウンドしてるならエントリー
     fn check_support_line_rebound(&self, info: &TradeInfo) -> MyResult<Option<ActionType>> {
-        let signal = self.signal_checker.check_support_line_rebound(info);
+        let signal = self.signal_checker.check_support_line_rebound(info)?;
         if !signal.turned_on {
             info!("{}", signal.to_string());
             return Ok(None);

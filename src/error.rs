@@ -17,6 +17,12 @@ pub enum MyError {
 
     #[error("response is error, {}, request:{}", message, request)]
     ErrorResponse { message: String, request: String },
+
+    #[error("{} not found in {}", key, collection_name)]
+    KeyNotFound {
+        key: String,
+        collection_name: String,
+    },
 }
 
 pub type MyResult<T> = Result<T, Box<dyn Error>>;

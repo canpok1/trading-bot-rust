@@ -180,11 +180,13 @@ pub struct BalanceGetResponse {
     pub etc: String,
     pub fct: String,
     pub mona: String,
+    pub plt: String,
     pub jpy_reserved: String,
     pub btc_reserved: String,
     pub etc_reserved: String,
     pub fct_reserved: String,
     pub mona_reserved: String,
+    pub plt_reserved: String,
 }
 
 impl BalanceGetResponse {
@@ -228,6 +230,14 @@ impl BalanceGetResponse {
             model::Balance {
                 amount: self.mona.parse()?,
                 reserved: self.mona_reserved.parse()?,
+            },
+        );
+
+        map.insert(
+            "plt".to_owned(),
+            model::Balance {
+                amount: self.plt.parse()?,
+                reserved: self.plt.parse()?,
             },
         );
 

@@ -1,5 +1,6 @@
 use crate::coincheck::model::*;
 use crate::config::Config;
+use crate::error::MyError::KeyNotFound;
 use crate::error::MyError::TooShort;
 use crate::error::MyResult;
 use crate::mysql::model::MarketSummary;
@@ -83,16 +84,40 @@ pub struct TradeInfo {
 }
 
 impl TradeInfo {
-    pub fn get_sell_rate(&self) -> &f64 {
-        self.sell_rates.get(&self.pair.to_string()).unwrap()
+    pub fn get_sell_rate(&self) -> MyResult<f64> {
+        let key = self.pair.to_string();
+        if let Some(rate) = self.sell_rates.get(&key) {
+            Ok(*rate)
+        } else {
+            Err(Box::new(KeyNotFound {
+                key: key,
+                collection_name: "sell_rates".to_owned(),
+            }))
+        }
     }
 
-    pub fn get_balance_key(&self) -> &Balance {
-        self.balances.get(&self.pair.key).unwrap()
+    pub fn get_balance_key(&self) -> MyResult<&Balance> {
+        let key = &self.pair.key;
+        if let Some(b) = self.balances.get(key) {
+            Ok(b)
+        } else {
+            Err(Box::new(KeyNotFound {
+                key: key.to_owned(),
+                collection_name: "balances".to_owned(),
+            }))
+        }
     }
 
-    pub fn get_balance_settlement(&self) -> &Balance {
-        self.balances.get(&self.pair.settlement).unwrap()
+    pub fn get_balance_settlement(&self) -> MyResult<&Balance> {
+        let key = &self.pair.settlement;
+        if let Some(b) = self.balances.get(key) {
+            Ok(b)
+        } else {
+            Err(Box::new(KeyNotFound {
+                key: key.to_owned(),
+                collection_name: "balances".to_owned(),
+            }))
+        }
     }
 
     pub fn calc_total_balance_jpy(&self) -> f64 {
@@ -109,8 +134,8 @@ impl TradeInfo {
         total
     }
 
-    pub fn has_position(&self) -> bool {
-        self.get_balance_key().total() * self.get_sell_rate() >= 1.0
+    pub fn has_position(&self) -> MyResult<bool> {
+        Ok(self.get_balance_key()?.total() * self.get_sell_rate()? >= 1.0)
     }
 
     pub fn support_lines(
@@ -263,10 +288,12 @@ impl TradeInfo {
 
     pub fn is_rate_rising(&self) -> Option<bool> {
         if let Some(before_rate) = self.rate_histories.last() {
-            Some(*self.get_sell_rate() <= *before_rate)
-        } else {
-            None
+            let sell_rate = self.get_sell_rate();
+            if let Ok(sell_rate) = sell_rate {
+                return Some(sell_rate <= *before_rate);
+            }
         }
+        None
     }
 
     pub fn sma(&self, period: usize) -> MyResult<f64> {
@@ -342,7 +369,7 @@ pub struct SignalChecker<'a> {
 }
 
 impl SignalChecker<'_> {
-    pub fn check_resistance_line_breakout(&self, info: &TradeInfo) -> Signal {
+    pub fn check_resistance_line_breakout(&self, info: &TradeInfo) -> MyResult<Signal> {
         let mut signal = Signal {
             turned_on: false,
             name: "resistance line breakout".to_owned(),
@@ -352,8 +379,8 @@ impl SignalChecker<'_> {
         // レジスタンスライン関連の情報
         let slope = info.resistance_lines[1] - info.resistance_lines[0];
 
-        let width_upper = info.get_sell_rate() * self.config.resistance_line_width_ratio_upper;
-        let width_lower = info.get_sell_rate() * self.config.resistance_line_width_ratio_lower;
+        let width_upper = info.get_sell_rate()? * self.config.resistance_line_width_ratio_upper;
+        let width_lower = info.get_sell_rate()? * self.config.resistance_line_width_ratio_lower;
 
         let upper = info.resistance_lines.last().unwrap() + width_upper;
         let lower = info.resistance_lines.last().unwrap() + width_lower;
@@ -361,7 +388,7 @@ impl SignalChecker<'_> {
         // レジスタンスラインの傾きチェック
         if slope < 0.0 {
             signal.detail = format!("slope:{:.3}", slope);
-            return signal;
+            return Ok(signal);
         }
 
         // レジスタンスラインのすぐ上でリバウンドしたかチェック
@@ -372,37 +399,37 @@ impl SignalChecker<'_> {
             self.config.rebound_check_period,
         ) {
             signal.detail = "not roll reversal".to_owned();
-            return signal;
+            return Ok(signal);
         }
 
         // 現レートがレジスタンスライン近くかをチェック
-        if *info.get_sell_rate() < lower || *info.get_sell_rate() > upper {
+        if info.get_sell_rate()? < lower || info.get_sell_rate()? > upper {
             signal.detail = format!(
                 "sell rate:{:.3} is out of range:{:.3}...{:.3}",
-                info.get_sell_rate(),
+                info.get_sell_rate()?,
                 lower,
                 upper,
             );
-            return signal;
+            return Ok(signal);
         }
 
         // レート上昇中かチェック
         let before_rate = *info.rate_histories.last().unwrap();
-        if *info.get_sell_rate() <= before_rate {
+        if info.get_sell_rate()? <= before_rate {
             signal.detail = format!(
                 "sell rate is not rising, sell rate:{:.3} <= before:{:.3}",
-                info.get_sell_rate(),
+                info.get_sell_rate()?,
                 before_rate,
             );
-            return signal;
+            return Ok(signal);
         }
 
         signal.turned_on = true;
-        signal
+        Ok(signal)
     }
 
     // サポートラインがリバウンドしてるならエントリー
-    pub fn check_support_line_rebound(&self, info: &TradeInfo) -> Signal {
+    pub fn check_support_line_rebound(&self, info: &TradeInfo) -> MyResult<Signal> {
         let mut signal = Signal {
             turned_on: false,
             name: "support line rebound".to_owned(),
@@ -411,20 +438,20 @@ impl SignalChecker<'_> {
 
         // サポートライン（長期）関連の情報
         let (is_rebounded_long, is_rebounded_long_info) =
-            self.is_support_line_rebound(info, &info.support_lines_long);
+            self.is_support_line_rebound(info, &info.support_lines_long)?;
         let (on_support_line_long, on_support_line_long_info) =
-            self.is_on_support_line(info, &info.support_lines_long);
+            self.is_on_support_line(info, &info.support_lines_long)?;
 
         // サポートライン（短期）関連の情報
         let (is_rebounded_short, is_rebounded_short_info) =
-            self.is_support_line_rebound(info, &info.support_lines_short);
+            self.is_support_line_rebound(info, &info.support_lines_short)?;
         let (on_support_line_short, on_support_line_short_info) =
-            self.is_on_support_line(info, &info.support_lines_short);
+            self.is_on_support_line(info, &info.support_lines_short)?;
 
         // サポートラインのすぐ上でリバウンドしたかチェック
         if !is_rebounded_long && !is_rebounded_short {
             signal.detail = format!("{}, {}", is_rebounded_long_info, is_rebounded_short_info);
-            return signal;
+            return Ok(signal);
         }
 
         // 現レートがサポートライン近くかをチェック
@@ -433,16 +460,20 @@ impl SignalChecker<'_> {
                 "{}, {}",
                 on_support_line_long_info, on_support_line_short_info
             );
-            return signal;
+            return Ok(signal);
         }
 
         signal.turned_on = true;
-        signal
+        Ok(signal)
     }
 
-    fn is_support_line_rebound(&self, info: &TradeInfo, lines: &Vec<f64>) -> (bool, String) {
-        let width_upper = info.get_sell_rate() * self.config.support_line_width_ratio_upper;
-        let width_lower = info.get_sell_rate() * self.config.support_line_width_ratio_lower;
+    fn is_support_line_rebound(
+        &self,
+        info: &TradeInfo,
+        lines: &Vec<f64>,
+    ) -> MyResult<(bool, String)> {
+        let width_upper = info.get_sell_rate()? * self.config.support_line_width_ratio_upper;
+        let width_lower = info.get_sell_rate()? * self.config.support_line_width_ratio_lower;
         let rebounded = info.is_upper_rebound(
             lines,
             width_upper,
@@ -450,31 +481,31 @@ impl SignalChecker<'_> {
             self.config.rebound_check_period,
         );
         if rebounded {
-            (rebounded, "is_upper_rebound: true".to_string())
+            Ok((rebounded, "is_upper_rebound: true".to_string()))
         } else {
-            (rebounded, "is_upper_rebound: false".to_string())
+            Ok((rebounded, "is_upper_rebound: false".to_string()))
         }
     }
 
-    fn is_on_support_line(&self, info: &TradeInfo, lines: &Vec<f64>) -> (bool, String) {
-        let width_upper = info.get_sell_rate() * self.config.support_line_width_ratio_upper;
-        let width_lower = info.get_sell_rate() * self.config.support_line_width_ratio_lower;
+    fn is_on_support_line(&self, info: &TradeInfo, lines: &Vec<f64>) -> MyResult<(bool, String)> {
+        let width_upper = info.get_sell_rate()? * self.config.support_line_width_ratio_upper;
+        let width_lower = info.get_sell_rate()? * self.config.support_line_width_ratio_lower;
         let upper = lines.last().unwrap() + width_upper;
         let lower = lines.last().unwrap() - width_lower;
-        let result = *info.get_sell_rate() >= lower && *info.get_sell_rate() <= upper;
+        let result = info.get_sell_rate()? >= lower && info.get_sell_rate()? <= upper;
         let message = if result {
             format!(
                 "sell rate:{} is on support line:{}",
-                format!("{:.3}", info.get_sell_rate()),
+                format!("{:.3}", info.get_sell_rate()?),
                 format!("{:.3}...{:.3}", lower, upper)
             )
         } else {
             format!(
                 "sell rate:{} is not on support line:{}",
-                format!("{:.3}", info.get_sell_rate()),
+                format!("{:.3}", info.get_sell_rate()?),
                 format!("{:.3}...{:.3}", lower, upper)
             )
         };
-        (result, message)
+        Ok((result, message))
     }
 }
