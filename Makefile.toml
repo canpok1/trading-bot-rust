@@ -1,5 +1,5 @@
 env_files = [
-    "./configs/bot.env",
+    "./configs/bot-mona.env",
     "./configs/db.env",
     "./configs/slack.env",
     "./configs/exchange.env"
