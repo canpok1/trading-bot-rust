@@ -794,13 +794,14 @@ where
             return Ok(());
         }
         // ナンピンすると余裕なくなるならスキップする
-        let required = param.market_buy_amount * 3.0;
-        if balance_jpy.amount < required {
+        let required = self.calc_buy_jpy()? * 3.0;
+        if balance_jpy.amount - param.market_buy_amount < required {
             warn!(
                 "{}",
                 format!(
                     "skip avg down, balance jpy is too little ({:.3} < {:.3})",
-                    balance_jpy.amount, required
+                    balance_jpy.amount - param.market_buy_amount,
+                    required
                 )
                 .yellow()
             );
