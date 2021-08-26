@@ -2,6 +2,7 @@ use crate::coincheck::model::*;
 use crate::config::Config;
 use crate::error::MyError::TooShort;
 use crate::error::MyResult;
+use crate::mysql::model::MarketSummary;
 use std::collections::HashMap;
 
 use colored::Colorize;
@@ -78,6 +79,7 @@ pub struct TradeInfo {
     pub support_lines_short: Vec<f64>,
     pub resistance_lines: Vec<f64>,
     pub order_books: OrderBooks,
+    pub market_summary: MarketSummary,
 }
 
 impl TradeInfo {

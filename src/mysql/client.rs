@@ -1,9 +1,11 @@
 use crate::error::MyError::RecordNotFound;
 use crate::error::MyResult;
+use crate::mysql::model::MarketSummary;
 use crate::mysql::model::{BotStatus, Event, EventType, Market, Markets};
 
 use chrono::DateTime;
 use chrono::Utc;
+use indoc::indoc;
 use mysql::prelude::Queryable;
 use mysql::OptsBuilder;
 use mysql::Pool;
@@ -17,6 +19,8 @@ pub trait Client {
     fn select_bot_status(&self, bot_name: &str, pair: &str, r#type: &str) -> MyResult<BotStatus>;
 
     fn insert_event(&self, event: &Event) -> MyResult<()>;
+
+    fn select_market_summary(&self, pair: &str, offset_hour: u64) -> MyResult<MarketSummary>;
 }
 
 #[derive(Debug)]
@@ -132,5 +136,61 @@ impl Client for DefaultClient {
         );
         conn.query_drop(sql)?;
         Ok(())
+    }
+
+    fn select_market_summary(&self, pair: &str, offset_hour: u64) -> MyResult<MarketSummary> {
+        let mut conn = self.get_conn()?;
+
+        let sql = format!(
+            indoc!(
+                "
+                SELECT
+                    COUNT(1) count,
+                    MIN(m.recorded_at) recorded_at_begin,
+                    MAX(m.recorded_at) recorded_at_end,
+                    MAX(m.ex_rate_sell) ex_rate_sell_max,
+                    MIN(m.ex_rate_sell) ex_rate_sell_min,
+                    MAX(m.ex_rate_buy) ex_rate_buy_max,
+                    MIN(m.ex_rate_buy) ex_rate_buy_min,
+                    SUM(m.ex_volume_sell) ex_volume_sell_total,
+                    SUM(m.ex_volume_buy) ex_volume_buy_total
+                FROM markets m 
+                WHERE m.pair = '{}'
+                    AND m.recorded_at <= DATE_SUB(NOW(), INTERVAL {} HOUR)
+                    AND m.recorded_at >= DATE_SUB(NOW(), INTERVAL 24 + {} HOUR)
+            "
+            ),
+            pair, offset_hour, offset_hour
+        );
+        if let Some((
+            count,
+            recorded_at_begin,
+            recorded_at_end,
+            ex_rate_sell_max,
+            ex_rate_sell_min,
+            ex_rate_buy_max,
+            ex_rate_buy_min,
+            ex_volume_sell_total,
+            ex_volume_buy_total,
+        )) = conn.query_first(sql)?
+        {
+            if count > 0 {
+                return Ok(MarketSummary {
+                    count: count,
+                    recorded_at_begin: recorded_at_begin,
+                    recorded_at_end: recorded_at_end,
+                    ex_rate_sell_max: ex_rate_sell_max,
+                    ex_rate_sell_min: ex_rate_sell_min,
+                    ex_rate_buy_max: ex_rate_buy_max,
+                    ex_rate_buy_min: ex_rate_buy_min,
+                    ex_volume_sell_total: ex_volume_sell_total,
+                    ex_volume_buy_total: ex_volume_buy_total,
+                });
+            }
+        }
+        Err(Box::new(RecordNotFound {
+            table: "markets".to_owned(),
+            param: format!("pair:{}, offset_hour:{}", pair, offset_hour),
+        }))
     }
 }

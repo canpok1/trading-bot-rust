@@ -34,6 +34,19 @@ impl MarketsMethods for Markets {
 }
 
 #[derive(Debug)]
+pub struct MarketSummary {
+    pub count: u64,
+    pub recorded_at_begin: chrono::NaiveDateTime,
+    pub recorded_at_end: chrono::NaiveDateTime,
+    pub ex_rate_sell_max: f64,
+    pub ex_rate_sell_min: f64,
+    pub ex_rate_buy_max: f64,
+    pub ex_rate_buy_min: f64,
+    pub ex_volume_sell_total: f64,
+    pub ex_volume_buy_total: f64,
+}
+
+#[derive(Debug)]
 pub struct BotStatus {
     pub bot_name: String,
     pub pair: String,

@@ -59,8 +59,8 @@ pub struct Config {
     pub loss_cut_rate_ratio: f64,
     // スキップ基準レート（約定待ちレートに対する割合を指定）
     pub entry_skip_rate_ratio: f64,
-    // 売られすぎと判断する売り出来高しきい値
-    pub over_sell_volume_border: f64,
+    // 売られすぎと判断する売り出来高しきい値（昨日の合計出来高に対する割合を指定）
+    pub over_sell_volume_ratio: f64,
 
     // 取引所関連
     pub exchange_access_key: String,

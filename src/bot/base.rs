@@ -119,6 +119,10 @@ where
             .get_order_books(&self.config.target_pair)
             .await?;
 
+        let market_summary = self
+            .mysql_client
+            .select_market_summary(&self.config.target_pair, 1)?;
+
         Ok(TradeInfo {
             pair: pair,
             sell_rates: sell_rates,
@@ -132,6 +136,7 @@ where
             support_lines_short: support_lines_short,
             resistance_lines: resistance_lines,
             order_books: order_books,
+            market_summary: market_summary,
         })
     }
 
@@ -456,12 +461,14 @@ where
             buy_volume += v;
         }
         let diff = sell_volume - buy_volume;
-        if diff >= self.config.over_sell_volume_border {
+        let over_sell_volume_border =
+            info.market_summary.ex_volume_sell_total * self.config.over_sell_volume_ratio;
+        if diff >= over_sell_volume_border {
             info!(
                 "{} entry check (volume diff:{} >= border:{})(sell:{},buy:{})",
                 "SKIP".red(),
                 format!("{:.3}", diff).yellow(),
-                format!("{:.3}", self.config.over_sell_volume_border).yellow(),
+                format!("{:.3}", over_sell_volume_border).yellow(),
                 format!("{:.3}", sell_volume).yellow(),
                 format!("{:.3}", buy_volume).yellow(),
             );
@@ -471,7 +478,7 @@ where
                 "{}",
                 format!(
                     "NOT SKIP entry check (volume diff:{:.3} < border:{:.3})(sell:{:.3},buy:{:.3})",
-                    diff, self.config.over_sell_volume_border, sell_volume, buy_volume,
+                    diff, over_sell_volume_border, sell_volume, buy_volume,
                 )
                 .blue()
             );
