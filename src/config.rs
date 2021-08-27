@@ -12,7 +12,7 @@ pub struct Config {
     pub rate_period_minutes: i64,
     // 外部サービスの処理待ち間隔（秒）
     pub external_service_wait_interval_sec: u64,
-    // デモモード
+    // デモモード（有効にすると注文を出さない）
     pub demo_mode: bool,
 
     // 単純移動平均の期間（短期）
@@ -61,6 +61,8 @@ pub struct Config {
     pub entry_skip_rate_ratio: f64,
     // 売られすぎと判断する売り出来高しきい値（昨日の合計出来高に対する割合を指定）
     pub over_sell_volume_ratio: f64,
+    // 最低限残すロット数
+    pub keep_lot: f64,
 
     // 取引所関連
     pub exchange_access_key: String,

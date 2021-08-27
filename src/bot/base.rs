@@ -360,15 +360,19 @@ where
                     };
                     if info.get_sell_rate()? < lower && is_riging {
                         let buy_jpy = self.calc_buy_jpy()?;
-                        let times = (open_order.rate * open_order.pending_amount / buy_jpy) as i64;
-                        // 1, 2, 3, 4 の割合でナンピンする
-                        let market_buy_amount = if times < 2 {
-                            2.0 * buy_jpy
-                        } else if times < 3 {
-                            3.0 * buy_jpy
-                        } else {
-                            4.0 * buy_jpy
+
+                        let market_buy_amount = {
+                            let used_jpy = open_order.rate * open_order.pending_amount;
+                            let mut used_jpy_tmp = 0.0;
+                            let mut lot = 1.0;
+                            while used_jpy_tmp < used_jpy {
+                                used_jpy_tmp += lot * buy_jpy;
+                                // 1, 2, 4, 8, 16, 32 ... の割合でナンピンする
+                                lot *= 2.0;
+                            }
+                            lot * buy_jpy
                         };
+
                         actions.push(ActionType::AvgDown(AvgDownParam {
                             pair: Pair::new(&self.config.target_pair)?,
                             market_buy_amount: market_buy_amount,
@@ -806,7 +810,7 @@ where
             return Ok(());
         }
         // ナンピンすると余裕なくなるならスキップする
-        let required = self.calc_buy_jpy()? * 3.0;
+        let required = self.calc_buy_jpy()? * self.config.keep_lot;
         if balance_jpy.amount - param.market_buy_amount < required {
             warn!(
                 "{}",
