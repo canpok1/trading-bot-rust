@@ -5,23 +5,26 @@ services:
       context: .
       dockerfile: Dockerfile
     env_file:
+      - configs/bot.env
       - configs/bot-mona.env
       - configs/db.env
       - configs/slack.env
       - configs/exchange.env
     networks:
       - trading-bot-network
-  bot-plt:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    env_file:
-      - configs/bot-plt.env
-      - configs/db.env
-      - configs/slack.env
-      - configs/exchange.env
-    networks:
-      - trading-bot-network
+  # 資金不足で最低注文量の制限に引っかかるためコメントアウト
+  # bot-plt:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   env_file:
+  #     - configs/bot.env
+  #     - configs/bot-plt.env
+  #     - configs/db.env
+  #     - configs/slack.env
+  #     - configs/exchange.env
+  #   networks:
+  #     - trading-bot-network
 networks:
   trading-bot-network:
     external:
