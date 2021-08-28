@@ -360,17 +360,20 @@ where
                     };
                     if info.get_sell_rate()? < lower && is_riging {
                         let buy_jpy = self.calc_buy_jpy()?;
+                        let used_jpy = open_order.rate * open_order.pending_amount;
 
-                        let market_buy_amount = {
-                            let used_jpy = open_order.rate * open_order.pending_amount;
+                        let (market_buy_amount, memo) = {
                             let mut used_jpy_tmp = 0.0;
                             let mut lot = 1.0;
-                            while used_jpy_tmp < used_jpy {
+                            while used_jpy_tmp <= used_jpy * 0.8 {
                                 used_jpy_tmp += lot * buy_jpy;
                                 // 1, 2, 4, 8, 16, 32 ... の割合でナンピンする
                                 lot *= 2.0;
                             }
-                            lot * buy_jpy
+                            (
+                                lot * buy_jpy,
+                                format! {"lot: {}, buy_jpy: {}, used_jpy: {}", lot, buy_jpy, used_jpy},
+                            )
                         };
 
                         actions.push(ActionType::AvgDown(AvgDownParam {
@@ -379,6 +382,7 @@ where
                             open_order_id: open_order.id,
                             open_order_rate: open_order.rate,
                             open_order_amount: open_order.pending_amount,
+                            memo: memo,
                         }));
                         info!(
                             "{} (lower:{:.3} > sell rate:{:.3})",

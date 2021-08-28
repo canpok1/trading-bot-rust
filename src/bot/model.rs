@@ -30,6 +30,7 @@ pub struct AvgDownParam {
     pub open_order_id: u64,
     pub open_order_rate: f64,
     pub open_order_amount: f64,
+    pub memo: String,
 }
 
 #[derive(Debug)]
