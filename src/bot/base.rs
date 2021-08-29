@@ -736,8 +736,8 @@ where
             .slack_client
             .post_message(&TextMessage {
                 text: format!(
-                    "entry completed!\nrate:`{:.3}`\namount:`{:.3}`\nparam:`{:?}`",
-                    rate, amount_coin, param
+                    "entry completed!\npair:`{}`\nrate:`{:.3}`\namount:`{:.3}`\nparam:`{:?}`",
+                    self.config.target_pair, rate, amount_coin, param
                 ),
             })
             .await
@@ -766,7 +766,10 @@ where
         if let Err(err) = self
             .slack_client
             .post_message(&TextMessage {
-                text: format!("losscut completed! `{:?}`", param),
+                text: format!(
+                    "losscut completed!\npair:`{}`\nparam:`{:?}`",
+                    self.config.target_pair, param
+                ),
             })
             .await
         {
@@ -795,7 +798,10 @@ where
         if let Err(err) = self
             .slack_client
             .post_message(&TextMessage {
-                text: format!("sell completed! `{:?}`", param),
+                text: format!(
+                    "sell completed!\npair:`{}`\nparam:`{:?}`",
+                    self.config.target_pair, param
+                ),
             })
             .await
         {
@@ -844,8 +850,8 @@ where
             .slack_client
             .post_message(&TextMessage {
                 text: format!(
-                    "avg down completed!\nrate:`{:.3}`\namount:`{:.3}`\nparam:`{:?}`",
-                    rate, amount_coin, param
+                    "avg down completed!\npair:`{}`,rate:`{:.3}`\namount:`{:.3}`\nparam:`{:?}`",
+                    self.config.target_pair, rate, amount_coin, param
                 ),
             })
             .await
