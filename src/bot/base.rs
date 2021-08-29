@@ -271,15 +271,19 @@ where
     fn make_params(&self, info: &TradeInfo) -> MyResult<Vec<ActionType>> {
         let mut params: Vec<ActionType> = Vec::new();
 
+        debug!("========== check unused coin ==========");
         if let Some(action_type) = self.check_unused_coin(info)? {
             params.push(action_type);
             return Ok(params);
         }
+
+        debug!("========== check loss cut or avd down ==========");
         let mut action_types = self.check_loss_cut_or_avg_down(info)?;
         if !action_types.is_empty() {
             params.append(&mut action_types);
         }
 
+        debug!("========== check entry ==========");
         let skip = self.check_entry_skip(info)?;
         if skip {
             return Ok(params);
@@ -301,7 +305,7 @@ where
             debug!(
                 "{}",
                 format!(
-                    "has not unused coin (coin:{:.3} < border:{:.3})",
+                    "NONE <= has not unused coin (coin:{:.3} < border:{:.3})",
                     info.get_balance_key()?.amount,
                     border
                 )
@@ -309,8 +313,8 @@ where
             );
             return Ok(None);
         }
-        info!(
-            "has unused coin (coin:{} > border:{})",
+        debug!(
+            "Notify <= has unused coin (coin:{} > border:{})",
             format!("{:.3}", info.get_balance_key()?.amount).yellow(),
             format!("{:.3}", border).yellow(),
         );
@@ -332,6 +336,9 @@ where
     // 未決済注文のレートが現レートの一定以下なら損切りorナンピン
     fn check_loss_cut_or_avg_down(&self, info: &TradeInfo) -> MyResult<Vec<ActionType>> {
         let mut actions = Vec::new();
+        if info.open_orders.is_empty() {
+            debug!("{}", "NONE <= open orders is empty".blue());
+        }
         for open_order in &info.open_orders {
             match open_order.order_type {
                 OrderType::Sell => {
@@ -344,7 +351,7 @@ where
                             amount: open_order.pending_amount,
                         }));
                         info!(
-                            "{} (lower:{:.3} > sell rate:{:.3})",
+                            "{} <= (lower:{:.3} > sell rate:{:.3})",
                             "Loss Cut".red(),
                             lower,
                             info.get_sell_rate()?
@@ -385,7 +392,7 @@ where
                             memo: memo,
                         }));
                         info!(
-                            "{} (lower:{:.3} > sell rate:{:.3})",
+                            "{} <= (lower:{:.3} > sell rate:{:.3})",
                             "AVG Down".red(),
                             lower,
                             info.get_sell_rate()?
@@ -408,7 +415,7 @@ where
         let sma_long = info.sma(self.config.sma_period_long)?;
         if sma_short < sma_long {
             info!(
-                "{} entry check (sma short:{} < sma long:{})(period short:{},long:{})",
+                "{} <= down trend (sma short:{} < sma long:{})(period short:{},long:{})",
                 "SKIP".red(),
                 format!("{:.3}", sma_short).yellow(),
                 format!("{:.3}", sma_long).yellow(),
@@ -420,7 +427,7 @@ where
             debug!(
                 "{}",
                 format!(
-                "NOT SKIP entry check (sma short:{:.3} >= sma long:{:.3})(period short:{},long:{})",
+                "NOT SKIP <= up trend (sma short:{:.3} >= sma long:{:.3})(period short:{},long:{})",
                 sma_short, sma_long, self.config.sma_period_short, self.config.sma_period_long,
             )
                 .blue()
@@ -439,7 +446,7 @@ where
 
             if info.get_sell_rate()? > lower_rate {
                 info!(
-                    "{} entry check (sell rate:{} > lower_rate:{} )",
+                    "{} <= the diff between sell rate and open order rate is too small (sell rate:{} > lower_rate:{})",
                     "SKIP".red(),
                     format!("{:.3}", info.get_sell_rate()?).yellow(),
                     format!("{:.3}", lower_rate).yellow(),
@@ -449,7 +456,7 @@ where
                 debug!(
                     "{}",
                     format!(
-                        "NOT SKIP entry check (sell rate:{:.3} <= lower:{:.3})",
+                        "NOT SKIP <= the diff between sell rate and open order rate is enough (sell rate:{:.3} <= lower_rate:{:.3})",
                         info.get_sell_rate()?,
                         lower_rate
                     )
@@ -478,7 +485,7 @@ where
             info.market_summary.ex_volume_sell_total * self.config.over_sell_volume_ratio;
         if diff >= over_sell_volume_border {
             info!(
-                "{} entry check (volume diff:{} >= border:{})(sell:{},buy:{})",
+                "{} <= over sell (volume diff:{} >= border:{})(sell:{},buy:{})",
                 "SKIP".red(),
                 format!("{:.3}", diff).yellow(),
                 format!("{:.3}", over_sell_volume_border).yellow(),
@@ -490,7 +497,7 @@ where
             debug!(
                 "{}",
                 format!(
-                    "NOT SKIP entry check (volume diff:{:.3} < border:{:.3})(sell:{:.3},buy:{:.3})",
+                    "NOT SKIP <= not over sell (volume diff:{:.3} < border:{:.3})(sell:{:.3},buy:{:.3})",
                     diff, over_sell_volume_border, sell_volume, buy_volume,
                 )
                 .blue()
@@ -509,7 +516,7 @@ where
         let ask_total_upper = sell_volume * self.config.order_books_size_ratio;
         if ask_total > ask_total_upper {
             info!(
-                "{} entry check (ask_total:{} > upper:{})(sell_volume:{})",
+                "{} <= board is too heavy (ask_total:{} > upper:{})(sell_volume:{})",
                 "SKIP".red(),
                 format!("{:.3}", ask_total).yellow(),
                 format!("{:.3}", ask_total_upper).yellow(),
@@ -520,7 +527,7 @@ where
             debug!(
                 "{}",
                 format!(
-                    "NOT SKIP entry check (ask_total:{:.3} <= upper:{:.3})(sell_volume:{:.3})",
+                    "NOT SKIP <= board is not heavy (ask_total:{:.3} <= upper:{:.3})(sell_volume:{:.3})",
                     ask_total, ask_total_upper, sell_volume
                 )
                 .blue()
@@ -535,13 +542,19 @@ where
         let signal = self.signal_checker.check_resistance_line_breakout(info)?;
 
         if !signal.turned_on {
-            info!("{}", signal.to_string());
+            info!(
+                "NONE <= registance line not breakout, {}",
+                signal.to_string()
+            );
             return Ok(None);
         }
 
         match self.calc_buy_jpy() {
             Ok(buy_jpy) => {
-                info!("{} resistance line breakout (roll reversal)", "OK".green());
+                info!(
+                    "{} <= resistance line breakout (roll reversal)",
+                    "ENTRY".green()
+                );
                 Ok(Some(ActionType::Entry(EntryParam {
                     pair: Pair::new(&self.config.target_pair)?,
                     amount: buy_jpy,
@@ -563,7 +576,10 @@ where
     fn check_support_line_rebound(&self, info: &TradeInfo) -> MyResult<Option<ActionType>> {
         let signal = self.signal_checker.check_support_line_rebound(info)?;
         if !signal.turned_on {
-            info!("{}", signal.to_string());
+            info!(
+                "NONE <= not rebounded on the support line, {}",
+                signal.to_string()
+            );
             return Ok(None);
         }
 
@@ -576,7 +592,7 @@ where
                 } else {
                     self.config.profit_ratio_per_order_on_down_trend
                 };
-                info!("{} rebounded on the support line", "OK".green());
+                info!("{} <= rebounded on the support line", "ENTRY".green());
                 Ok(Some(ActionType::Entry(EntryParam {
                     pair: Pair::new(&self.config.target_pair)?,
                     amount: buy_jpy,
@@ -610,6 +626,7 @@ where
     }
 
     async fn action(&self, tt: Vec<ActionType>) -> MyResult<()> {
+        debug!("========== action ==========");
         if tt.is_empty() {
             info!("skip action (action is empty)");
             return Ok(());
