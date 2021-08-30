@@ -30,6 +30,16 @@ services:
       - configs/exchange.env
     networks:
       - trading-bot-network
+  bot-btc:
+    image: docker.pkg.github.com/canpok1/trading-bot-rust/bot:latest
+    env_file:
+      - configs/bot.env
+      - configs/bot-btc.env
+      - configs/db.env
+      - configs/slack.env
+      - configs/exchange.env
+    networks:
+      - trading-bot-network
 networks:
   trading-bot-network:
     external:
