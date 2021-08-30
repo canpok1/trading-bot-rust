@@ -245,6 +245,23 @@ where
             memo: "サポートライン（短期）の傾き".to_owned(),
         })?;
 
+        let long_trend = if info
+            .is_up_trend(self.config.sma_period_short, self.config.sma_period_long)?
+        {
+            1.0
+        } else if info.is_down_trend(self.config.sma_period_short, self.config.sma_period_long)? {
+            2.0
+        } else {
+            0.0
+        };
+        self.mysql_client.upsert_bot_status(&BotStatus {
+            bot_name: self.config.bot_name.to_owned(),
+            pair: info.pair.to_string(),
+            r#type: "long_trend".to_owned(),
+            value: long_trend,
+            memo: "長期トレンド（1:上昇, 2:下降）".to_owned(),
+        })?;
+
         let total_balance_jpy = info.calc_total_balance_jpy();
         let total_jpy =
             match self

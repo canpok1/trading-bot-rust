@@ -310,6 +310,18 @@ impl TradeInfo {
         }
     }
 
+    pub fn is_down_trend(&self, short_period: usize, long_period: usize) -> MyResult<bool> {
+        let sma_short = self.sma(short_period)?;
+        let sma_long = self.sma(long_period)?;
+        Ok(sma_short < sma_long)
+    }
+
+    pub fn is_up_trend(&self, short_period: usize, long_period: usize) -> MyResult<bool> {
+        let sma_short = self.sma(short_period)?;
+        let sma_long = self.sma(long_period)?;
+        Ok(sma_short > sma_long)
+    }
+
     fn line_fit(x: &Vec<f64>, y: &Vec<f64>) -> (f64, f64) {
         let ndata = x.len();
         if ndata < 2 {
