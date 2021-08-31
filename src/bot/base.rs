@@ -382,7 +382,7 @@ where
                     } else {
                         false
                     };
-                    if info.get_sell_rate()? < lower && is_riging {
+                    if info.buy_rate < lower && is_riging {
                         let buy_jpy = self.calc_buy_jpy()?;
                         let used_jpy = open_order.rate * open_order.pending_amount;
 
@@ -409,10 +409,10 @@ where
                             memo: memo,
                         }));
                         info!(
-                            "{} <= (lower:{:.3} > sell rate:{:.3})",
+                            "{} <= (buy rate:{:.3} < lower:{:.3})",
                             "AVG Down".red(),
+                            info.buy_rate,
                             lower,
-                            info.get_sell_rate()?
                         );
                         continue;
                     }
