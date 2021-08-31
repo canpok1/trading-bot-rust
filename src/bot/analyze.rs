@@ -296,7 +296,7 @@ impl TradeInfo {
         None
     }
 
-    pub fn sma(&self, period: usize) -> MyResult<f64> {
+    pub fn wma(&self, period: usize) -> MyResult<f64> {
         if self.rate_histories.len() < period {
             Err(Box::new(TooShort {
                 name: "rate histories".to_owned(),
@@ -304,22 +304,28 @@ impl TradeInfo {
                 required: period,
             }))
         } else {
+            let mut sum: f64 = 0.0;
+            let mut weight_sum: f64 = 0.0;
             let begin = self.rate_histories.len() - period;
-            let sum: f64 = self.rate_histories[begin..].iter().sum();
-            Ok(sum / (period as f64))
+            for (i, r) in self.rate_histories[begin..].iter().enumerate() {
+                let weight = (period - i) as f64;
+                sum += r * weight;
+                weight_sum += weight;
+            }
+            Ok(sum / weight_sum)
         }
     }
 
     pub fn is_down_trend(&self, short_period: usize, long_period: usize) -> MyResult<bool> {
-        let sma_short = self.sma(short_period)?;
-        let sma_long = self.sma(long_period)?;
-        Ok(sma_short < sma_long)
+        let wma_short = self.wma(short_period)?;
+        let wma_long = self.wma(long_period)?;
+        Ok(wma_short < wma_long)
     }
 
     pub fn is_up_trend(&self, short_period: usize, long_period: usize) -> MyResult<bool> {
-        let sma_short = self.sma(short_period)?;
-        let sma_long = self.sma(long_period)?;
-        Ok(sma_short > sma_long)
+        let wma_short = self.wma(short_period)?;
+        let wma_long = self.wma(long_period)?;
+        Ok(wma_short > wma_long)
     }
 
     fn line_fit(x: &Vec<f64>, y: &Vec<f64>) -> (f64, f64) {

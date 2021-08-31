@@ -246,10 +246,10 @@ where
         })?;
 
         let long_trend = if info
-            .is_up_trend(self.config.sma_period_short, self.config.sma_period_long)?
+            .is_up_trend(self.config.wma_period_short, self.config.wma_period_long)?
         {
             1.0
-        } else if info.is_down_trend(self.config.sma_period_short, self.config.sma_period_long)? {
+        } else if info.is_down_trend(self.config.wma_period_short, self.config.wma_period_long)? {
             2.0
         } else {
             0.0
@@ -428,24 +428,24 @@ where
 
         // 長期トレンドが下降トレンドならスキップ
         // 移動平均の短期が長期より下なら下降トレンドと判断
-        let sma_short = info.sma(self.config.sma_period_short)?;
-        let sma_long = info.sma(self.config.sma_period_long)?;
-        if sma_short < sma_long {
+        let wma_short = info.wma(self.config.wma_period_short)?;
+        let wma_long = info.wma(self.config.wma_period_long)?;
+        if wma_short < wma_long {
             info!(
-                "{} <= down trend (sma short:{} < sma long:{})(period short:{},long:{})",
+                "{} <= down trend (wma short:{} < wma long:{})(period short:{},long:{})",
                 "SKIP".red(),
-                format!("{:.3}", sma_short).yellow(),
-                format!("{:.3}", sma_long).yellow(),
-                format!("{}", self.config.sma_period_short).yellow(),
-                format!("{}", self.config.sma_period_long).yellow(),
+                format!("{:.3}", wma_short).yellow(),
+                format!("{:.3}", wma_long).yellow(),
+                format!("{}", self.config.wma_period_short).yellow(),
+                format!("{}", self.config.wma_period_long).yellow(),
             );
             skip = true;
         } else {
             debug!(
                 "{}",
                 format!(
-                "NOT SKIP <= up trend (sma short:{:.3} >= sma long:{:.3})(period short:{},long:{})",
-                sma_short, sma_long, self.config.sma_period_short, self.config.sma_period_long,
+                "NOT SKIP <= up trend (wma short:{:.3} >= wma long:{:.3})(period short:{},long:{})",
+                wma_short, wma_long, self.config.wma_period_short, self.config.wma_period_long,
             )
                 .blue()
             );
@@ -463,7 +463,7 @@ where
 
             if info.get_sell_rate()? > lower_rate {
                 info!(
-                    "{} <= the diff between sell rate and open order rate is too small (sell rate:{} > lower_rate:{})",
+                    "{} <= the diff between sell rate and open order rate is too wmall (sell rate:{} > lower_rate:{})",
                     "SKIP".red(),
                     format!("{:.3}", info.get_sell_rate()?).yellow(),
                     format!("{:.3}", lower_rate).yellow(),
