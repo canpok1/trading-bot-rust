@@ -237,7 +237,7 @@ impl BalanceGetResponse {
             "plt".to_owned(),
             model::Balance {
                 amount: self.plt.parse()?,
-                reserved: self.plt.parse()?,
+                reserved: self.plt_reserved.parse()?,
             },
         );
 
