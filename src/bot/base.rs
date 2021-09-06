@@ -62,7 +62,7 @@ where
         );
 
         self.upsert(&info)?;
-        let params = self.make_params(&info)?;
+        let params = self.make_params(now, &info)?;
         self.action(params).await?;
         Ok(())
     }
@@ -285,7 +285,7 @@ where
         Ok(())
     }
 
-    fn make_params(&self, info: &TradeInfo) -> MyResult<Vec<ActionType>> {
+    fn make_params(&self, now: &DateTime<Utc>, info: &TradeInfo) -> MyResult<Vec<ActionType>> {
         let mut params: Vec<ActionType> = Vec::new();
 
         debug!("========== check unused coin ==========");
@@ -295,7 +295,7 @@ where
         }
 
         debug!("========== check loss cut or avd down ==========");
-        let mut action_types = self.check_loss_cut_or_avg_down(info)?;
+        let mut action_types = self.check_loss_cut_or_avg_down(now, info)?;
         if !action_types.is_empty() {
             params.append(&mut action_types);
         }
@@ -351,7 +351,11 @@ where
     }
 
     // 未決済注文のレートが現レートの一定以下なら損切りorナンピン
-    fn check_loss_cut_or_avg_down(&self, info: &TradeInfo) -> MyResult<Vec<ActionType>> {
+    fn check_loss_cut_or_avg_down(
+        &self,
+        now: &DateTime<Utc>,
+        info: &TradeInfo,
+    ) -> MyResult<Vec<ActionType>> {
         let mut actions = Vec::new();
         if info.open_orders.is_empty() {
             debug!("{}", "NONE <= open orders is empty".blue());
@@ -359,61 +363,12 @@ where
         for open_order in &info.open_orders {
             match open_order.order_type {
                 OrderType::Sell => {
-                    // 損切り？
-                    let lower = open_order.rate * self.config.loss_cut_rate_ratio;
-                    if info.get_sell_rate()? < lower {
-                        actions.push(ActionType::LossCut(LossCutParam {
-                            pair: Pair::new(&self.config.target_pair)?,
-                            open_order_id: open_order.id,
-                            amount: open_order.pending_amount,
-                        }));
-                        info!(
-                            "{} <= (lower:{:.3} > sell rate:{:.3})",
-                            "Loss Cut".red(),
-                            lower,
-                            info.get_sell_rate()?
-                        );
+                    if let Some(a) = self.check_loss_cut(info, open_order)? {
+                        actions.push(a);
                         continue;
                     }
-                    // ナンピン？
-                    let lower = open_order.rate * self.config.avg_down_rate_ratio;
-                    let is_riging = if let Some(v) = info.is_rate_rising() {
-                        v
-                    } else {
-                        false
-                    };
-                    if info.buy_rate < lower && is_riging {
-                        let buy_jpy = self.calc_buy_jpy()?;
-                        let used_jpy = open_order.rate * open_order.pending_amount;
-
-                        let (market_buy_amount, memo) = {
-                            let mut used_jpy_tmp = 0.0;
-                            let mut lot = 1.0;
-                            while used_jpy_tmp <= used_jpy * 0.8 {
-                                used_jpy_tmp += lot * buy_jpy;
-                                // 1, 2, 4, 8, 16, 32 ... の割合でナンピンする
-                                lot *= 2.0;
-                            }
-                            (
-                                lot * buy_jpy,
-                                format! {"lot: {}, buy_jpy: {}, used_jpy: {}", lot, buy_jpy, used_jpy},
-                            )
-                        };
-
-                        actions.push(ActionType::AvgDown(AvgDownParam {
-                            pair: Pair::new(&self.config.target_pair)?,
-                            market_buy_amount: market_buy_amount,
-                            open_order_id: open_order.id,
-                            open_order_rate: open_order.rate,
-                            open_order_amount: open_order.pending_amount,
-                            memo: memo,
-                        }));
-                        info!(
-                            "{} <= (buy rate:{:.3} < lower:{:.3})",
-                            "AVG Down".red(),
-                            info.buy_rate,
-                            lower,
-                        );
+                    if let Some(a) = self.check_avg_down(now, info, open_order)? {
+                        actions.push(a);
                         continue;
                     }
                 }
@@ -421,6 +376,97 @@ where
             }
         }
         Ok(actions)
+    }
+
+    // ロスカット？
+    fn check_loss_cut(
+        &self,
+        info: &TradeInfo,
+        open_order: &OpenOrder,
+    ) -> MyResult<Option<ActionType>> {
+        let lower = open_order.rate * self.config.loss_cut_rate_ratio;
+        if info.get_sell_rate()? < lower {
+            info!(
+                "{} <= (lower:{:.3} > sell rate:{:.3})",
+                "Loss Cut".red(),
+                lower,
+                info.get_sell_rate()?
+            );
+            let action = ActionType::LossCut(LossCutParam {
+                pair: Pair::new(&self.config.target_pair)?,
+                open_order_id: open_order.id,
+                amount: open_order.pending_amount,
+            });
+            Ok(Some(action))
+        } else {
+            Ok(None)
+        }
+    }
+
+    // ナンピン？
+    fn check_avg_down(
+        &self,
+        now: &DateTime<Utc>,
+        info: &TradeInfo,
+        open_order: &OpenOrder,
+    ) -> MyResult<Option<ActionType>> {
+        let lower = open_order.rate * self.config.avg_down_rate_ratio;
+        let is_riging = if let Some(v) = info.is_rate_rising() {
+            v
+        } else {
+            false
+        };
+        let holding_term = *now - open_order.created_at.with_timezone(&Utc);
+
+        let (should, memo) = if info.buy_rate < lower && is_riging {
+            (
+                true,
+                format!("(buy rate:{:.3} < lower:{:.3})", info.buy_rate, lower,),
+            )
+        } else if holding_term > Duration::minutes(self.config.hold_limit_minutes) && is_riging {
+            (
+                true,
+                format!(
+                    "({} > {}min)(created_at:{})",
+                    holding_term, self.config.hold_limit_minutes, open_order.created_at
+                ),
+            )
+        } else {
+            (false, "".to_owned())
+        };
+
+        if should {
+            let buy_jpy = self.calc_buy_jpy()?;
+            let used_jpy = open_order.rate * open_order.pending_amount;
+
+            let (market_buy_amount, action_memo) = {
+                let mut used_jpy_tmp = 0.0;
+                let mut lot = 1.0;
+                while used_jpy_tmp <= used_jpy * 0.8 {
+                    used_jpy_tmp += lot * buy_jpy;
+                    // 1, 2, 4, 8, 16, 32 ... の割合でナンピンする
+                    lot *= 2.0;
+                }
+                (
+                    lot * buy_jpy,
+                    format! {"lot: {}, buy_jpy: {}, used_jpy: {}", lot, buy_jpy, used_jpy},
+                )
+            };
+
+            info!("{} <= {}", "AVG Down".red(), memo);
+
+            let action = ActionType::AvgDown(AvgDownParam {
+                pair: Pair::new(&self.config.target_pair)?,
+                market_buy_amount: market_buy_amount,
+                open_order_id: open_order.id,
+                open_order_rate: open_order.rate,
+                open_order_amount: open_order.pending_amount,
+                memo: action_memo,
+            });
+            Ok(Some(action))
+        } else {
+            Ok(None)
+        }
     }
 
     fn check_entry_skip(&self, info: &TradeInfo) -> MyResult<bool> {

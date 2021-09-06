@@ -53,14 +53,21 @@ pub struct Config {
     pub profit_ratio_per_order: f64,
     // 注文1回あたりの目標利益率 下降トレンド時（買い注文時のJPYに対する割合を指定）
     pub profit_ratio_per_order_on_down_trend: f64,
+
+    // ポジション保有期間の最大時間（分）
+    pub hold_limit_minutes: i64,
     // ナンピン基準レート（約定待ちレートに対する割合を指定）
     pub avg_down_rate_ratio: f64,
+    // ナンピン基準レート 保有期間切れ時（約定待ちレートに対する割合を指定）
+    pub avg_down_rate_ratio_on_holding_expired: f64,
+
     // 損切り基準レート（約定待ちレートに対する割合を指定）
     pub loss_cut_rate_ratio: f64,
     // スキップ基準レート（約定待ちレートに対する割合を指定）
     pub entry_skip_rate_ratio: f64,
     // 売られすぎと判断する売り出来高しきい値（昨日の合計出来高に対する割合を指定）
     pub over_sell_volume_ratio: f64,
+
     // 最低限残すロット数
     pub keep_lot: f64,
 
