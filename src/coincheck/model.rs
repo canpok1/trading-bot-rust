@@ -28,7 +28,7 @@ impl Pair {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq)]
 pub enum OrderType {
     Sell,
     Buy,

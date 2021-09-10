@@ -171,7 +171,10 @@ where
         let open_orders: Vec<&OpenOrder> = info
             .open_orders
             .iter()
-            .filter(|o| o.pair == info.pair.to_string())
+            .filter(|o| {
+                o.pair == info.pair.to_string()
+                    && (o.order_type == OrderType::Sell || o.order_type == OrderType::MarketSell)
+            })
             .collect();
         let v = if open_orders.len() == 0 {
             -1.0
