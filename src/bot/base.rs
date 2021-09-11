@@ -9,12 +9,11 @@ use crate::mysql;
 use crate::mysql::model::{BotStatus, Event, EventType, MarketsMethods};
 use crate::slack;
 use crate::slack::client::TextMessage;
-use chrono::DateTime;
-use std::collections::HashMap;
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Timelike, Utc};
 use colored::Colorize;
 use log::{debug, error, info, warn};
+use std::collections::HashMap;
 use std::{thread, time};
 
 #[derive(Debug)]
@@ -292,7 +291,7 @@ where
         let mut params: Vec<ActionType> = Vec::new();
 
         debug!("========== check unused coin ==========");
-        if let Some(action_type) = self.check_unused_coin(info)? {
+        if let Some(action_type) = self.check_unused_coin(now, info)? {
             params.push(action_type);
             return Ok(params);
         }
@@ -319,7 +318,11 @@ where
     }
 
     // 未使用コインが一定以上なら通知
-    fn check_unused_coin(&self, info: &TradeInfo) -> MyResult<Option<ActionType>> {
+    fn check_unused_coin(
+        &self,
+        now: &DateTime<Utc>,
+        info: &TradeInfo,
+    ) -> MyResult<Option<ActionType>> {
         let border = 1.0;
         if info.get_balance_key()?.amount < border {
             debug!(
@@ -333,6 +336,17 @@ where
             );
             return Ok(None);
         }
+        let minute = now.minute();
+        if minute % 5 != 0 {
+            debug!(
+                "NONE <= has unused coin, but it is not notification timing now (coin:{} > border:{})(minute:{} % 5 != 0)",
+                format!("{:.3}", info.get_balance_key()?.amount).yellow(),
+                format!("{:.3}", border).yellow(),
+                format!("{}", minute)
+            );
+            return Ok(None);
+        }
+
         debug!(
             "Notify <= has unused coin (coin:{} > border:{})",
             format!("{:.3}", info.get_balance_key()?.amount).yellow(),
