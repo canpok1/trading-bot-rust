@@ -938,16 +938,18 @@ where
 
         self.cancel(param.open_order_id).await?;
 
-        let amount_coin = param.open_order_amount + amount_new_coin;
+        // ナンピン後の注文は二分割する（ナンピンのための買注文の金額を肥大化させないため）
+        let amount_coin = (param.open_order_amount + amount_new_coin) / 2.0;
         let rate = ((param.open_order_amount * param.open_order_rate) + param.market_buy_amount)
-            / amount_coin;
+            / (amount_coin * 2.0);
+        self.sell(&param.pair, rate, amount_coin).await?;
         self.sell(&param.pair, rate, amount_coin).await?;
 
         if let Err(err) = self
             .slack_client
             .post_message(&TextMessage {
                 text: format!(
-                    "avg down completed!\npair:`{}`,rate:`{:.3}`\namount:`{:.3}`\nparam:`{:?}`",
+                    "avg down completed!\npair:`{}`,rate:`{:.3}`\namount:`{:.3} * 2`\nparam:`{:?}`",
                     self.config.target_pair, rate, amount_coin, param
                 ),
             })
