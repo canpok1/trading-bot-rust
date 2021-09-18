@@ -38,6 +38,7 @@ repeat
 
         if (長期トレンド) then (下降トレンド)
         elseif (未決済注文のレート) then (現レートとの差が一定未満)
+        elseif (直近の取引頻度) then (一定以下)
         elseif (短期売り出来高) then (一定以上)
         elseif (目標レートまでの板の厚さ) then (短期売り出来高未満)
         elseif (短期レジスタンスライン) then (ブレイクアウト)

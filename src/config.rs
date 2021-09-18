@@ -67,6 +67,8 @@ pub struct Config {
     pub entry_skip_rate_ratio: f64,
     // 売られすぎと判断する売り出来高しきい値（昨日の合計出来高に対する割合を指定）
     pub over_sell_volume_ratio: f64,
+    // 最低限必要な取引頻度（0.0〜1.0）
+    pub required_trade_frequency_ratio: f64,
 
     // 最低限残すロット数
     pub keep_lot: f64,

@@ -153,11 +153,23 @@ impl Client for DefaultClient {
                     MAX(m.ex_rate_buy) ex_rate_buy_max,
                     MIN(m.ex_rate_buy) ex_rate_buy_min,
                     SUM(m.ex_volume_sell) ex_volume_sell_total,
-                    SUM(m.ex_volume_buy) ex_volume_buy_total
-                FROM markets m 
-                WHERE m.pair = '{}'
-                    AND m.recorded_at <= DATE_SUB(NOW(), INTERVAL {} HOUR)
-                    AND m.recorded_at >= DATE_SUB(NOW(), INTERVAL 24 + {} HOUR)
+                    SUM(m.ex_volume_buy) ex_volume_buy_total,
+                    SUM(m.trade_count) / COUNT(1) trade_frequency_ratio
+                FROM (
+                    SELECT
+                        recorded_at,
+                        ex_rate_sell,
+                        ex_rate_buy,
+                        ex_volume_sell,
+                        ex_volume_buy,
+                        CASE WHEN ex_volume_sell + ex_volume_buy = 0 THEN 0 ELSE 1 END trade_count
+                    FROM
+                        markets
+                    WHERE
+                        pair = '{}'
+                        AND recorded_at <= DATE_SUB(NOW(), INTERVAL {} HOUR)
+                        AND recorded_at >= DATE_SUB(NOW(), INTERVAL 24 + {} HOUR)
+                ) m
             "
             ),
             pair, offset_hour, offset_hour
@@ -172,6 +184,7 @@ impl Client for DefaultClient {
             ex_rate_buy_min,
             ex_volume_sell_total,
             ex_volume_buy_total,
+            trade_frequency_ratio,
         )) = conn.query_first(sql)?
         {
             if count > 0 {
@@ -185,6 +198,7 @@ impl Client for DefaultClient {
                     ex_rate_buy_min: ex_rate_buy_min,
                     ex_volume_sell_total: ex_volume_sell_total,
                     ex_volume_buy_total: ex_volume_buy_total,
+                    trade_frequency_ratio: trade_frequency_ratio,
                 });
             }
         }

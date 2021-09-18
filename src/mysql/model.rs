@@ -44,6 +44,7 @@ pub struct MarketSummary {
     pub ex_rate_buy_min: f64,
     pub ex_volume_sell_total: f64,
     pub ex_volume_buy_total: f64,
+    pub trade_frequency_ratio: f64,
 }
 
 #[derive(Debug)]

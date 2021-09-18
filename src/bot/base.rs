@@ -545,6 +545,27 @@ where
             }
         }
 
+        // 直近の取引頻度が一定以上ならスキップ
+        if info.market_summary.trade_frequency_ratio < self.config.required_trade_frequency_ratio {
+            info!(
+                "{} <= trade frequency is too low (frequency:{} < required:{})",
+                "SKIP".red(),
+                format!("{:.3}", info.market_summary.trade_frequency_ratio).yellow(),
+                format!("{:.3}", self.config.required_trade_frequency_ratio).yellow(),
+            );
+            skip = true;
+        } else {
+            debug!(
+                "{}",
+                format!(
+                    "NOT SKIP <= trade frequency is enough (frequency:{:.3} >= required:{:.3})",
+                    info.market_summary.trade_frequency_ratio,
+                    self.config.required_trade_frequency_ratio,
+                )
+                .blue()
+            );
+        }
+
         // 短期の売りと買いの出来高差が一定以上ならスキップ
         let mut sell_volume = 0.0;
         for (i, v) in info.sell_volumes.iter().rev().enumerate() {
