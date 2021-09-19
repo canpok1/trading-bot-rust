@@ -7,7 +7,7 @@ use chrono::DateTime;
 use chrono::FixedOffset;
 use serde::Deserialize;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Pair {
     pub key: String,
     pub settlement: String,

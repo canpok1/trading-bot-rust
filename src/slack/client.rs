@@ -15,7 +15,7 @@ pub struct DefaultClient {
     url: String,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, PartialEq)]
 pub struct TextMessage {
     pub text: String,
 }

@@ -4,4 +4,5 @@ pub mod config;
 pub mod error;
 pub mod mysql;
 pub mod slack;
+pub mod strategy;
 pub mod util;

@@ -1,21 +1,21 @@
 use crate::coincheck::model::Pair;
 use crate::slack::client::TextMessage;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct EntryParam {
     pub pair: Pair,
     pub amount: f64,
     pub profit_ratio: f64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct LossCutParam {
     pub pair: Pair,
     pub open_order_id: u64,
     pub amount: f64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct SellParam {
     pub open_order_ids: Vec<u64>,
     pub pair: Pair,
@@ -23,7 +23,7 @@ pub struct SellParam {
     pub amount: f64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct AvgDownParam {
     pub pair: Pair,
     pub market_buy_amount: f64,
@@ -33,12 +33,13 @@ pub struct AvgDownParam {
     pub memo: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct NotifyParam {
     pub log_message: String,
     pub slack_message: TextMessage,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum ActionType {
     Entry(EntryParam),
     LossCut(LossCutParam),
