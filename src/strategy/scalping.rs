@@ -1,14 +1,10 @@
-use crate::bot::analyze::TradeInfo;
-use crate::bot::model::ActionType;
-use crate::bot::model::AvgDownParam;
-use crate::bot::model::EntryParam;
-use crate::bot::model::LossCutParam;
-use crate::bot::model::NotifyParam;
+use crate::bot::model::{ActionType,AvgDownParam, EntryParam, LossCutParam, NotifyParam,TradeInfo};
 use crate::coincheck::model::Pair;
 use crate::coincheck::model::{OpenOrder, OrderType};
 use crate::error::MyResult;
 use crate::slack::client::TextMessage;
 use crate::strategy::base::Strategy;
+use crate::util;
 use chrono::{DateTime, Utc};
 use colored::Colorize;
 use log::{debug, info};
@@ -61,13 +57,13 @@ impl ScalpingStrategy<'_> {
         now: &DateTime<Utc>,
         info: &TradeInfo,
     ) -> MyResult<Option<ActionType>> {
-        let (is_notification_timing, memo) = super::util::is_notification_timing(now);
+        let (is_notification_timing, memo) = util::is_notification_timing(now);
         if !is_notification_timing {
             debug!("{}", format!("NONE <= {}", memo).blue());
             return Ok(None);
         }
 
-        let (has_unused_coin, memo) = super::util::has_unused_coin(info.get_balance_key()?, 1.0);
+        let (has_unused_coin, memo) = util::has_unused_coin(info.get_balance_key()?, 1.0);
         if has_unused_coin {
             debug!("{}", format!("NONE <= {}", memo).blue());
             return Ok(None);
@@ -123,7 +119,7 @@ impl ScalpingStrategy<'_> {
         info: &TradeInfo,
         open_order: &OpenOrder,
     ) -> MyResult<Option<ActionType>> {
-        let (should_loss_cut, memo) = super::util::should_loss_cut(
+        let (should_loss_cut, memo) = util::should_loss_cut(
             info.get_sell_rate()?,
             open_order,
             self.config.loss_cut_rate_ratio,
@@ -158,7 +154,7 @@ impl ScalpingStrategy<'_> {
             return Ok(None);
         }
 
-        let (should, memo) = super::util::should_avg_down(
+        let (should, memo) = util::should_avg_down(
             now,
             info.buy_rate,
             open_order,
@@ -171,7 +167,7 @@ impl ScalpingStrategy<'_> {
         }
 
         let (market_buy_amount, memo) =
-            super::util::calc_avg_down_buy_amount(buy_jpy_per_lot, open_order);
+            util::calc_avg_down_buy_amount(buy_jpy_per_lot, open_order);
         info!("{} <= {}", "AVG Down".red(), memo);
 
         let action = ActionType::AvgDown(AvgDownParam {
@@ -193,7 +189,7 @@ impl ScalpingStrategy<'_> {
         // 移動平均の短期が長期より下なら下降トレンドと判断
         let wma_short = info.wma(self.config.wma_period_short)?;
         let wma_long = info.wma(self.config.wma_period_long)?;
-        let (is_down_trend, memo) = super::util::is_down_trend(wma_short, wma_long);
+        let (is_down_trend, memo) = util::is_down_trend(wma_short, wma_long);
         if is_down_trend {
             info!("{} <= {}", "SKIP".red(), memo,);
             skip = true;
@@ -202,7 +198,7 @@ impl ScalpingStrategy<'_> {
         }
 
         // 未決済注文のレートが現レートとあまり離れてないならスキップ
-        let (has_near_rate_order, memo) = super::util::has_near_rate_order(
+        let (has_near_rate_order, memo) = util::has_near_rate_order(
             info.get_sell_rate()?,
             &info.open_orders,
             self.config.entry_skip_rate_ratio,
@@ -215,7 +211,7 @@ impl ScalpingStrategy<'_> {
         }
 
         // 直近の取引頻度が一定以上ならスキップ
-        let (is_trade_frequency_enough, memo) = super::util::is_trade_frequency_enough(
+        let (is_trade_frequency_enough, memo) = util::is_trade_frequency_enough(
             info.market_summary.trade_frequency_ratio,
             self.config.required_trade_frequency_ratio,
         );
@@ -241,7 +237,7 @@ impl ScalpingStrategy<'_> {
             }
             short_volume_buy_total += v;
         }
-        let (is_over_sell, memo) = super::util::is_over_sell(
+        let (is_over_sell, memo) = util::is_over_sell(
             short_volume_sell_total,
             short_volume_buy_total,
             info.market_summary.ex_volume_sell_total,
@@ -256,8 +252,8 @@ impl ScalpingStrategy<'_> {
         }
 
         // 目標レートまでの板の厚さが短期売り出来高未満ならスキップ
-        let (is_board_heavy, memo) = super::util::is_board_heavy(
-            super::util::estimate_sell_rate(
+        let (is_board_heavy, memo) = util::is_board_heavy(
+            util::estimate_sell_rate(
                 info.buy_rate,
                 buy_jpy_per_lot,
                 self.config.profit_ratio_per_order_on_down_trend,
@@ -286,7 +282,7 @@ impl ScalpingStrategy<'_> {
         let sell_rate = info.get_sell_rate()?;
 
         // レジスタンスライン関連の情報
-        let slope = super::util::calc_slope(&info.resistance_lines);
+        let slope = util::calc_slope(&info.resistance_lines);
         let width_upper = sell_rate * self.config.resistance_line_width_ratio_upper;
         let width_lower = sell_rate * self.config.resistance_line_width_ratio_lower;
         let upper = info.resistance_lines.last().unwrap() + width_upper;
@@ -306,7 +302,7 @@ impl ScalpingStrategy<'_> {
         }
 
         // レジスタンスラインのすぐ上でリバウンドしてないならエントリーしない
-        let (is_rebounded, memo) = super::util::is_rebounded(
+        let (is_rebounded, memo) = util::is_rebounded(
             sell_rate,
             &info.rate_histories,
             &info.resistance_lines,
@@ -371,7 +367,7 @@ impl ScalpingStrategy<'_> {
         let sell_rate = info.get_sell_rate()?;
 
         // サポートラインすぐ上でリバウンドしていないならエントリーしない
-        let (is_rebounded_long, memo_long) = super::util::is_rebounded(
+        let (is_rebounded_long, memo_long) = util::is_rebounded(
             sell_rate,
             &info.rate_histories,
             &info.support_lines_long,
@@ -379,7 +375,7 @@ impl ScalpingStrategy<'_> {
             self.config.support_line_width_ratio_lower,
             self.config.rebound_check_period,
         );
-        let (is_rebounded_short, memo_short) = super::util::is_rebounded(
+        let (is_rebounded_short, memo_short) = util::is_rebounded(
             sell_rate,
             &info.rate_histories,
             &info.support_lines_short,
@@ -393,13 +389,13 @@ impl ScalpingStrategy<'_> {
         }
 
         // 現レートがサポートライン近くかをチェック
-        let (on_support_line_long, memo_long) = super::util::is_on_line(
+        let (on_support_line_long, memo_long) = util::is_on_line(
             sell_rate,
             &info.support_lines_long,
             self.config.support_line_width_ratio_upper,
             self.config.support_line_width_ratio_lower,
         );
-        let (on_support_line_short, memo_short) = super::util::is_on_line(
+        let (on_support_line_short, memo_short) = util::is_on_line(
             sell_rate,
             &info.support_lines_short,
             self.config.support_line_width_ratio_upper,

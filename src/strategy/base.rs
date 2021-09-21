@@ -1,5 +1,4 @@
-use crate::bot::analyze::TradeInfo;
-use crate::bot::model::ActionType;
+use crate::bot::model::{ActionType, TradeInfo};
 use crate::error::MyResult;
 use chrono::DateTime;
 use chrono::Utc;

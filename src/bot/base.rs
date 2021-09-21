@@ -1,7 +1,5 @@
 use crate::bot::action::ActionBehavior;
-use crate::bot::analyze::TradeInfo;
-use crate::bot::analyze::TradeInfoParam;
-use crate::bot::model::ActionType;
+use crate::bot::model::{ActionType, TradeInfo, TradeInfoParam};
 use crate::coincheck::model::{Balance, OpenOrder, OrderType, Pair};
 use crate::config::Config;
 use crate::error::MyResult;
