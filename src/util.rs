@@ -1,6 +1,9 @@
+use crate::bot::model::StraightLine;
 use crate::coincheck::model::Balance;
 use crate::coincheck::model::OpenOrder;
 use crate::coincheck::model::OrderBook;
+use crate::error::MyError::TooShort;
+use crate::error::MyResult;
 use chrono::{DateTime, Duration, Timelike, Utc};
 
 // coincheckの仕様に合わせて加工する
@@ -393,6 +396,17 @@ pub fn is_upper_rebound(
     false
 }
 
-pub fn calc_slope(line: &Vec<f64>) -> f64 {
-    line[1] - line[0]
+pub fn calc_slope(line: &StraightLine) -> MyResult<f64> {
+    let len = line.len();
+    if len < 2 {
+        return Err(Box::new(TooShort {
+            name: "straight line".to_owned(),
+            len: len,
+            required: 2,
+        }));
+    }
+
+    let current = line.last().unwrap();
+    let before = line.get(len - 2).unwrap();
+    Ok(current - before)
 }

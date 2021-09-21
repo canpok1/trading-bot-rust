@@ -147,12 +147,8 @@ impl ScalpingStrategy<'_> {
         open_order: &OpenOrder,
         buy_jpy_per_lot: f64,
     ) -> MyResult<Option<ActionType>> {
-        let is_riging = if let Some(v) = info.is_rate_rising() {
-            v
-        } else {
-            false
-        };
-        if !is_riging {
+        let slope = util::calc_slope(&info.support_lines_short)?;
+        if slope <= 0.0 {
             return Ok(None);
         }
 
@@ -257,7 +253,7 @@ impl ScalpingStrategy<'_> {
             util::estimate_sell_rate(
                 info.buy_rate,
                 buy_jpy_per_lot,
-                self.config.profit_ratio_per_order_on_down_trend,
+                self.config.profit_ratio_per_order,
             ),
             &info.order_books.asks,
             short_volume_sell_total,
@@ -283,7 +279,7 @@ impl ScalpingStrategy<'_> {
         let sell_rate = info.get_sell_rate()?;
 
         // レジスタンスライン関連の情報
-        let slope = util::calc_slope(&info.resistance_lines);
+        let slope = util::calc_slope(&info.resistance_lines)?;
         let width_upper = sell_rate * self.config.resistance_line_width_ratio_upper;
         let width_lower = sell_rate * self.config.resistance_line_width_ratio_lower;
         let upper = info.resistance_lines.last().unwrap() + width_upper;
@@ -619,7 +615,6 @@ mod tests {
             rebound_check_period: 15,
             funds_ratio_per_order: 0.1,
             profit_ratio_per_order: 0.0015,
-            profit_ratio_per_order_on_down_trend: 0.0015,
             hold_limit_minutes: 10,
             avg_down_rate_ratio: 0.97,
             avg_down_rate_ratio_on_holding_expired: 0.98,

@@ -1,13 +1,12 @@
 use crate::coincheck::model::Pair;
-use crate::slack::client::TextMessage;
 use crate::coincheck::model::*;
 use crate::error::MyError::KeyNotFound;
 use crate::error::MyError::TooShort;
 use crate::error::MyResult;
 use crate::mysql::model::MarketSummary;
+use crate::slack::client::TextMessage;
 
 use std::collections::HashMap;
-
 
 #[derive(Debug, PartialEq)]
 pub struct EntryParam {
@@ -57,6 +56,20 @@ pub enum ActionType {
     Notify(NotifyParam),
 }
 
+pub trait LineMethod {
+    fn get_current(&self) -> Option<f64>;
+}
+impl LineMethod for Vec<f64> {
+    fn get_current(&self) -> Option<f64> {
+        if let Some(v) = self.last() {
+            Some(*v)
+        } else {
+            None
+        }
+    }
+}
+
+pub type StraightLine = Vec<f64>;
 
 #[derive(Debug)]
 pub struct TradeInfo {
@@ -68,9 +81,9 @@ pub struct TradeInfo {
     pub rate_histories: Vec<f64>,
     pub sell_volumes: Vec<f64>,
     pub buy_volumes: Vec<f64>,
-    pub support_lines_long: Vec<f64>,
-    pub support_lines_short: Vec<f64>,
-    pub resistance_lines: Vec<f64>,
+    pub support_lines_long: StraightLine,
+    pub support_lines_short: StraightLine,
+    pub resistance_lines: StraightLine,
     pub order_books: OrderBooks,
     pub market_summary: MarketSummary,
 }
@@ -85,9 +98,9 @@ pub struct TradeInfoParam {
     pub rate_histories: Vec<f64>,
     pub sell_volumes: Vec<f64>,
     pub buy_volumes: Vec<f64>,
-    pub support_lines_long: Vec<f64>,
-    pub support_lines_short: Vec<f64>,
-    pub resistance_lines: Vec<f64>,
+    pub support_lines_long: StraightLine,
+    pub support_lines_short: StraightLine,
+    pub resistance_lines: StraightLine,
     pub order_books: OrderBooks,
     pub market_summary: MarketSummary,
 }
@@ -115,7 +128,7 @@ impl TradeInfoParam {
         rate_histories: &Vec<f64>,
         period: usize,
         offset: usize,
-    ) -> MyResult<Vec<f64>> {
+    ) -> MyResult<StraightLine> {
         let history_size = rate_histories.len();
         if history_size < period + offset {
             return Err(Box::new(TooShort {
@@ -158,7 +171,7 @@ impl TradeInfoParam {
         rate_histories: &Vec<f64>,
         period: usize,
         offset: usize,
-    ) -> MyResult<Vec<f64>> {
+    ) -> MyResult<StraightLine> {
         let history_size = rate_histories.len();
         if history_size < period + offset {
             return Err(Box::new(TooShort {
@@ -223,7 +236,7 @@ impl TradeInfoParam {
         (a, b)
     }
 
-    fn make_line(a: f64, b: f64, size: usize) -> Vec<f64> {
+    fn make_line(a: f64, b: f64, size: usize) -> StraightLine {
         (0..size).map(|i| a * (i as f64) + b).collect()
     }
 }
@@ -281,16 +294,6 @@ impl TradeInfo {
 
     pub fn has_position(&self) -> MyResult<bool> {
         Ok(self.get_balance_key()?.total() * self.get_sell_rate()? >= 1.0)
-    }
-
-    pub fn is_rate_rising(&self) -> Option<bool> {
-        if let Some(before_rate) = self.rate_histories.last() {
-            let sell_rate = self.get_sell_rate();
-            if let Ok(sell_rate) = sell_rate {
-                return Some(sell_rate <= *before_rate);
-            }
-        }
-        None
     }
 
     pub fn wma(&self, period: usize) -> MyResult<f64> {

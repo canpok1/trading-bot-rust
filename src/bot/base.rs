@@ -1,9 +1,10 @@
 use crate::bot::action::ActionBehavior;
-use crate::bot::model::{ActionType, TradeInfo, TradeInfoParam};
+use crate::bot::model::{ActionType, LineMethod, TradeInfo, TradeInfoParam};
 use crate::coincheck::model::{Balance, OpenOrder, OrderType, Pair};
 use crate::config::Config;
 use crate::error::MyResult;
 use crate::mysql::model::{BotStatus, MarketsMethods};
+use crate::util::calc_slope;
 use crate::{coincheck, mysql, slack, strategy};
 
 use chrono::{DateTime, Duration, Utc};
@@ -184,59 +185,51 @@ where
             memo: "約定待ちの売注文レート".to_owned(),
         })?;
 
-        let rates_size = info.rate_histories.len();
-
-        let resistance_line = info.resistance_lines.last().unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
             pair: info.pair.to_string(),
             r#type: "resistance_line_value".to_owned(),
-            value: resistance_line.to_owned(),
+            value: info.resistance_lines.get_current().unwrap(),
             memo: "レジスタンスラインの現在値".to_owned(),
         })?;
 
-        let resistance_lines_before = info.resistance_lines.get(rates_size - 2).unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
             pair: info.pair.to_string(),
             r#type: "resistance_line_slope".to_owned(),
-            value: resistance_line - resistance_lines_before,
+            value: calc_slope(&info.resistance_lines)?,
             memo: "レジスタンスラインの傾き".to_owned(),
         })?;
 
-        let support_line = info.support_lines_long.last().unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
             pair: info.pair.to_string(),
             r#type: "support_line_value".to_owned(),
-            value: support_line.to_owned(),
+            value: info.support_lines_long.get_current().unwrap(),
             memo: "サポートライン（長期）の現在値".to_owned(),
         })?;
 
-        let support_lines_before = info.support_lines_long.get(rates_size - 2).unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
             pair: info.pair.to_string(),
             r#type: "support_line_slope".to_owned(),
-            value: support_line - support_lines_before,
+            value: calc_slope(&info.support_lines_long)?,
             memo: "サポートライン（長期）の傾き".to_owned(),
         })?;
 
-        let support_line = info.support_lines_short.last().unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
             pair: info.pair.to_string(),
             r#type: "support_line_short_value".to_owned(),
-            value: support_line.to_owned(),
+            value: info.support_lines_short.get_current().unwrap(),
             memo: "サポートライン（短期）の現在値".to_owned(),
         })?;
 
-        let support_lines_before = info.support_lines_short.get(rates_size - 2).unwrap();
         self.mysql_client.upsert_bot_status(&BotStatus {
             bot_name: self.config.bot_name.to_owned(),
             pair: info.pair.to_string(),
             r#type: "support_line_short_slope".to_owned(),
-            value: support_line - support_lines_before,
+            value: calc_slope(&info.support_lines_short)?,
             memo: "サポートライン（短期）の傾き".to_owned(),
         })?;
 
