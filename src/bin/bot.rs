@@ -1,10 +1,8 @@
 use chrono::Utc;
-use trading_bot_rust::bot::analyze::SignalChecker;
 use trading_bot_rust::bot::base::Bot;
-use trading_bot_rust::coincheck;
 use trading_bot_rust::config::Config;
-use trading_bot_rust::mysql;
-use trading_bot_rust::slack;
+use trading_bot_rust::strategy::base::StrategyType;
+use trading_bot_rust::{coincheck, mysql, slack, strategy};
 
 use env_logger;
 use log::{error, info};
@@ -72,14 +70,17 @@ async fn main() {
     info!("demo mode  : {}", config.demo_mode);
     info!("===========================================");
 
-    let signal_checker = SignalChecker { config: &config };
+    let strategy_type = StrategyType::Scalping;
+    let strategy = match strategy_type {
+        StrategyType::Scalping => strategy::scalping::ScalpingStrategy { config: &config },
+    };
 
     let bot = Bot {
         config: &config,
         coincheck_client: &coincheck_cli,
         mysql_client: &mysql_cli,
         slack_client: &slack_cli,
-        signal_checker: &signal_checker,
+        strategy: &strategy,
     };
 
     loop {

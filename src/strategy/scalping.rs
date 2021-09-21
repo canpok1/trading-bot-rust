@@ -1,20 +1,29 @@
 use crate::bot::analyze::TradeInfo;
 use crate::bot::model::ActionType;
+use crate::bot::model::AvgDownParam;
+use crate::bot::model::EntryParam;
+use crate::bot::model::LossCutParam;
 use crate::bot::model::NotifyParam;
+use crate::coincheck::model::Pair;
 use crate::coincheck::model::{OpenOrder, OrderType};
 use crate::error::MyResult;
 use crate::slack::client::TextMessage;
 use crate::strategy::base::Strategy;
-use chrono::{DateTime, Timelike, Utc};
+use chrono::{DateTime, Utc};
 use colored::Colorize;
-use log::debug;
+use log::{debug, info};
 
 pub struct ScalpingStrategy<'a> {
     pub config: &'a crate::config::Config,
 }
 
 impl Strategy for ScalpingStrategy<'_> {
-    fn judge(&self, now: &DateTime<Utc>, info: &TradeInfo) -> MyResult<Vec<ActionType>> {
+    fn judge(
+        &self,
+        now: &DateTime<Utc>,
+        info: &TradeInfo,
+        buy_jpy_per_lot: f64,
+    ) -> MyResult<Vec<ActionType>> {
         let mut actions: Vec<ActionType> = Vec::new();
 
         debug!("========== check unused coin ==========");
@@ -24,20 +33,20 @@ impl Strategy for ScalpingStrategy<'_> {
         }
 
         debug!("========== check loss cut or avd down ==========");
-        let mut action_types = self.check_loss_cut_or_avg_down(now, info)?;
+        let mut action_types = self.check_loss_cut_or_avg_down(now, info, buy_jpy_per_lot)?;
         if !action_types.is_empty() {
             actions.append(&mut action_types);
         }
 
         debug!("========== check entry ==========");
-        let skip = self.check_entry_skip(info)?;
+        let skip = self.check_entry_skip(info, buy_jpy_per_lot)?;
         if skip {
             return Ok(actions);
         }
 
-        if let Some(action_type) = self.check_resistance_line_breakout(info)? {
+        if let Some(action_type) = self.check_resistance_line_breakout(info, buy_jpy_per_lot)? {
             actions.push(action_type);
-        } else if let Some(action_type) = self.check_support_line_rebound(info)? {
+        } else if let Some(action_type) = self.check_support_line_rebound(info, buy_jpy_per_lot)? {
             actions.push(action_type);
         }
 
@@ -52,35 +61,18 @@ impl ScalpingStrategy<'_> {
         now: &DateTime<Utc>,
         info: &TradeInfo,
     ) -> MyResult<Option<ActionType>> {
-        let border = 1.0;
-        if info.get_balance_key()?.amount < border {
-            debug!(
-                "{}",
-                format!(
-                    "NONE <= has not unused coin (coin:{:.3} < border:{:.3})",
-                    info.get_balance_key()?.amount,
-                    border
-                )
-                .blue(),
-            );
-            return Ok(None);
-        }
-        let minute = now.minute();
-        if minute % 5 != 0 {
-            debug!(
-                "NONE <= has unused coin, but it is not notification timing now (coin:{} > border:{})(minute:{} % 5 != 0)",
-                format!("{:.3}", info.get_balance_key()?.amount).yellow(),
-                format!("{:.3}", border).yellow(),
-                format!("{}", minute)
-            );
+        let (is_notification_timing, memo) = super::util::is_notification_timing(now);
+        if !is_notification_timing {
+            debug!("{}", format!("NONE <= {}", memo).blue());
             return Ok(None);
         }
 
-        debug!(
-            "Notify <= has unused coin (coin:{} > border:{})",
-            format!("{:.3}", info.get_balance_key()?.amount).yellow(),
-            format!("{:.3}", border).yellow(),
-        );
+        let (has_unused_coin, memo) = super::util::has_unused_coin(info.get_balance_key()?, 1.0);
+        if has_unused_coin {
+            debug!("{}", format!("NONE <= {}", memo).blue());
+            return Ok(None);
+        }
+        debug!("Notify <= {}", memo);
 
         let message = format!(
             "unused coin exist ({} {})",
@@ -101,6 +93,7 @@ impl ScalpingStrategy<'_> {
         &self,
         now: &DateTime<Utc>,
         info: &TradeInfo,
+        buy_jpy_per_lot: f64,
     ) -> MyResult<Vec<ActionType>> {
         let mut actions = Vec::new();
         if info.open_orders.is_empty() {
@@ -113,7 +106,7 @@ impl ScalpingStrategy<'_> {
                         actions.push(a);
                         continue;
                     }
-                    if let Some(a) = self.check_avg_down(now, info, open_order)? {
+                    if let Some(a) = self.check_avg_down(now, info, open_order, buy_jpy_per_lot)? {
                         actions.push(a);
                         continue;
                     }
@@ -127,47 +120,319 @@ impl ScalpingStrategy<'_> {
     // ロスカット？
     fn check_loss_cut(
         &self,
-        _info: &TradeInfo,
-        _open_order: &OpenOrder,
+        info: &TradeInfo,
+        open_order: &OpenOrder,
     ) -> MyResult<Option<ActionType>> {
-        todo!();
+        let (should_loss_cut, memo) = super::util::should_loss_cut(
+            info.get_sell_rate()?,
+            open_order,
+            self.config.loss_cut_rate_ratio,
+        );
+        if should_loss_cut {
+            info!("{} <= {}", "Loss Cut".red(), memo,);
+            let action = ActionType::LossCut(LossCutParam {
+                pair: Pair::new(&self.config.target_pair)?,
+                open_order_id: open_order.id,
+                amount: open_order.pending_amount,
+            });
+            Ok(Some(action))
+        } else {
+            Ok(None)
+        }
     }
 
     // ナンピン？
     fn check_avg_down(
         &self,
-        _now: &DateTime<Utc>,
-        _info: &TradeInfo,
-        _open_order: &OpenOrder,
+        now: &DateTime<Utc>,
+        info: &TradeInfo,
+        open_order: &OpenOrder,
+        buy_jpy_per_lot: f64,
     ) -> MyResult<Option<ActionType>> {
-        todo!();
+        let is_riging = if let Some(v) = info.is_rate_rising() {
+            v
+        } else {
+            false
+        };
+        if !is_riging {
+            return Ok(None);
+        }
+
+        let (should, memo) = super::util::should_avg_down(
+            now,
+            info.buy_rate,
+            open_order,
+            self.config.avg_down_rate_ratio,
+            self.config.hold_limit_minutes,
+        );
+        if !should {
+            debug!("{}", format!("NONE <= {}", memo).blue());
+            return Ok(None);
+        }
+
+        let (market_buy_amount, memo) =
+            super::util::calc_avg_down_buy_amount(buy_jpy_per_lot, open_order);
+        info!("{} <= {}", "AVG Down".red(), memo);
+
+        let action = ActionType::AvgDown(AvgDownParam {
+            pair: Pair::new(&self.config.target_pair)?,
+            market_buy_amount: market_buy_amount,
+            open_order_id: open_order.id,
+            open_order_rate: open_order.rate,
+            open_order_amount: open_order.pending_amount,
+            memo: memo,
+        });
+        Ok(Some(action))
     }
 
-    fn check_entry_skip(&self, _info: &TradeInfo) -> MyResult<bool> {
-        todo!();
+    fn check_entry_skip(&self, info: &TradeInfo, buy_jpy_per_lot: f64) -> MyResult<bool> {
+        let mut skip = false;
+
+        // 長期トレンドが下降トレンドならスキップ
+        // 移動平均の短期が長期より下なら下降トレンドと判断
+        let wma_short = info.wma(self.config.wma_period_short)?;
+        let wma_long = info.wma(self.config.wma_period_long)?;
+        let (is_down_trend, memo) = super::util::is_down_trend(wma_short, wma_long);
+        if is_down_trend {
+            info!("{} <= {}", "SKIP".red(), memo,);
+            skip = true;
+        } else {
+            debug!("{}", format!("NOT SKIP <= {}", memo,).blue());
+        }
+
+        // 未決済注文のレートが現レートとあまり離れてないならスキップ
+        let (has_near_rate_order, memo) = super::util::has_near_rate_order(
+            info.get_sell_rate()?,
+            &info.open_orders,
+            self.config.entry_skip_rate_ratio,
+        );
+        if has_near_rate_order {
+            info!("{} <= {}", "SKIP".red(), memo);
+            skip = true;
+        } else {
+            debug!("{}", format!("NOT SKIP <= {}", memo).blue());
+        }
+
+        // 直近の取引頻度が一定以上ならスキップ
+        let (is_trade_frequency_enough, memo) = super::util::is_trade_frequency_enough(
+            info.market_summary.trade_frequency_ratio,
+            self.config.required_trade_frequency_ratio,
+        );
+        if is_trade_frequency_enough {
+            debug!("{}", format!("NOT SKIP <= {}", memo,).blue());
+        } else {
+            info!("{} <= {}", "SKIP".red(), memo);
+            skip = true;
+        }
+
+        // 短期の売りと買いの出来高差が一定以上ならスキップ
+        let mut short_volume_sell_total = 0.0;
+        for (i, v) in info.sell_volumes.iter().rev().enumerate() {
+            if i >= self.config.volume_period_short {
+                break;
+            }
+            short_volume_sell_total += v;
+        }
+        let mut short_volume_buy_total = 0.0;
+        for (i, v) in info.buy_volumes.iter().rev().enumerate() {
+            if i >= self.config.volume_period_short {
+                break;
+            }
+            short_volume_buy_total += v;
+        }
+        let (is_over_sell, memo) = super::util::is_over_sell(
+            short_volume_sell_total,
+            short_volume_buy_total,
+            info.market_summary.ex_volume_sell_total,
+            self.config.over_sell_volume_ratio,
+        );
+
+        if is_over_sell {
+            info!("{} <= {}", "SKIP".red(), memo);
+            skip = true;
+        } else {
+            debug!("{}", format!("NOT SKIP <= {}", memo).blue());
+        }
+
+        // 目標レートまでの板の厚さが短期売り出来高未満ならスキップ
+        let (is_board_heavy, memo) = super::util::is_board_heavy(
+            super::util::estimate_sell_rate(
+                info.buy_rate,
+                buy_jpy_per_lot,
+                self.config.profit_ratio_per_order_on_down_trend,
+            ),
+            &info.order_books.asks,
+            short_volume_sell_total,
+            self.config.order_books_size_ratio,
+        );
+
+        if is_board_heavy {
+            info!("{} <= {}", "SKIP".red(), memo);
+            skip = true;
+        } else {
+            debug!("{}", format!("NOT SKIP <= {}", memo).blue());
+        }
+
+        Ok(skip)
     }
 
     // レジスタンスラインがブレイクアウトならエントリー
-    fn check_resistance_line_breakout(&self, _info: &TradeInfo) -> MyResult<Option<ActionType>> {
-        todo!();
+    fn check_resistance_line_breakout(
+        &self,
+        info: &TradeInfo,
+        buy_jpy_per_lot: f64,
+    ) -> MyResult<Option<ActionType>> {
+        let sell_rate = info.get_sell_rate()?;
+
+        // レジスタンスライン関連の情報
+        let slope = super::util::calc_slope(&info.resistance_lines);
+        let width_upper = sell_rate * self.config.resistance_line_width_ratio_upper;
+        let width_lower = sell_rate * self.config.resistance_line_width_ratio_lower;
+        let upper = info.resistance_lines.last().unwrap() + width_upper;
+        let lower = info.resistance_lines.last().unwrap() + width_lower;
+
+        // レジスタンスラインの傾きが負ならエントリーしない
+        if slope < 0.0 {
+            debug!(
+                "{}",
+                format!(
+                    "NONE <= slope of resistance_line is negative, slope:{:.3} < 0.0",
+                    slope
+                )
+                .blue()
+            );
+            return Ok(None);
+        }
+
+        // レジスタンスラインのすぐ上でリバウンドしてないならエントリーしない
+        let (is_rebounded, memo) = super::util::is_rebounded(
+            sell_rate,
+            &info.rate_histories,
+            &info.resistance_lines,
+            self.config.resistance_line_width_ratio_upper,
+            self.config.resistance_line_width_ratio_lower,
+            self.config.rebound_check_period,
+        );
+        if !is_rebounded {
+            debug!(
+                "{}",
+                format!(
+                    "NONE <= rates is not rebounded on the resistance line, {}",
+                    memo,
+                )
+                .blue()
+            );
+            return Ok(None);
+        }
+
+        // 現レートがレジスタンスラインから離れすぎてるならエントリーしない
+        if sell_rate < lower || sell_rate > upper {
+            debug!(
+                "{}",
+                format!(
+                    "NONE <= sell_rate:{:.3} is out of range:{:.3}...{:.3}",
+                    sell_rate, lower, upper,
+                )
+            );
+            return Ok(None);
+        }
+
+        // レート上昇中かチェック
+        let before_rate = *info.rate_histories.last().unwrap();
+        if sell_rate <= before_rate {
+            debug!(
+                "{}",
+                format!(
+                    "NONE <= sell_rate is not rising, sell_rate:{:.3} <= before:{:.3}",
+                    sell_rate, before_rate,
+                )
+            );
+            return Ok(None);
+        }
+
+        info!(
+            "{} <= resistance line breakout (roll reversal)",
+            "ENTRY".green()
+        );
+        Ok(Some(ActionType::Entry(EntryParam {
+            pair: Pair::new(&self.config.target_pair)?,
+            amount: buy_jpy_per_lot,
+            profit_ratio: self.config.profit_ratio_per_order,
+        })))
     }
 
     // サポートラインがリバウンドしてるならエントリー
-    fn check_support_line_rebound(&self, _info: &TradeInfo) -> MyResult<Option<ActionType>> {
-        todo!();
+    fn check_support_line_rebound(
+        &self,
+        info: &TradeInfo,
+        buy_jpy_per_lot: f64,
+    ) -> MyResult<Option<ActionType>> {
+        let sell_rate = info.get_sell_rate()?;
+
+        // サポートラインすぐ上でリバウンドしていないならエントリーしない
+        let (is_rebounded_long, memo_long) = super::util::is_rebounded(
+            sell_rate,
+            &info.rate_histories,
+            &info.support_lines_long,
+            self.config.support_line_width_ratio_upper,
+            self.config.support_line_width_ratio_lower,
+            self.config.rebound_check_period,
+        );
+        let (is_rebounded_short, memo_short) = super::util::is_rebounded(
+            sell_rate,
+            &info.rate_histories,
+            &info.support_lines_short,
+            self.config.support_line_width_ratio_upper,
+            self.config.support_line_width_ratio_lower,
+            self.config.rebound_check_period,
+        );
+        if !is_rebounded_long && !is_rebounded_short {
+            debug!("{}", format!("NONE <= {}, {}", memo_long, memo_short),);
+            return Ok(None);
+        }
+
+        // 現レートがサポートライン近くかをチェック
+        let (on_support_line_long, memo_long) = super::util::is_on_line(
+            sell_rate,
+            &info.support_lines_long,
+            self.config.support_line_width_ratio_upper,
+            self.config.support_line_width_ratio_lower,
+        );
+        let (on_support_line_short, memo_short) = super::util::is_on_line(
+            sell_rate,
+            &info.support_lines_short,
+            self.config.support_line_width_ratio_upper,
+            self.config.support_line_width_ratio_lower,
+        );
+        if !on_support_line_long && !on_support_line_short {
+            debug!("{}", format!("NONE <= {}, {}", memo_long, memo_short),);
+            return Ok(None);
+        }
+
+        info!("{} <= rebounded on the support line", "ENTRY".green());
+        Ok(Some(ActionType::Entry(EntryParam {
+            pair: Pair::new(&self.config.target_pair)?,
+            amount: buy_jpy_per_lot,
+            profit_ratio: self.config.profit_ratio_per_order,
+        })))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bot::model::LossCutParam;
     use crate::bot::model::NotifyParam;
     use crate::coincheck::model::{Balance, OrderBooks, Pair};
     use crate::config::Config;
     use crate::mysql::model::MarketSummary;
     use crate::slack::client::TextMessage;
+    use crate::strategy::scalping::ActionType::LossCut;
     use std::collections::HashMap;
     use std::mem;
+
+    const COIN_KEY: &str = "btc";
+    const COIN_SETTLEMENT: &str = "jpy";
 
     #[test]
     fn test_check_unused_coin() {
@@ -249,10 +514,93 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_check_loss_cut() {
+        struct Param {
+            sell_rate: f64,
+            loss_cut_rate_ratio: f64,
+            open_order: OpenOrder,
+            want: Option<ActionType>,
+        }
+        let mut params = HashMap::new();
+        params.insert(
+            "sell_rate is border rate or greater",
+            Param {
+                sell_rate: 970000.0,
+                loss_cut_rate_ratio: 0.97,
+                open_order: OpenOrder {
+                    id: 0,
+                    rate: 1000000.0,
+                    pending_amount: 1.0,
+                    pending_market_buy_amount: None,
+                    order_type: OrderType::Sell,
+                    pair: format!("{}_{}", COIN_KEY, COIN_SETTLEMENT),
+                    created_at: DateTime::parse_from_rfc3339("2018-12-07T19:31:28+09:00").unwrap(),
+                },
+                want: None,
+            },
+        );
+        params.insert(
+            "sell_rate is less than border rate",
+            Param {
+                sell_rate: 969999.9,
+                loss_cut_rate_ratio: 0.97,
+                open_order: OpenOrder {
+                    id: 100,
+                    rate: 1000000.0,
+                    pending_amount: 1.0,
+                    pending_market_buy_amount: None,
+                    order_type: OrderType::Sell,
+                    pair: format!("{}_{}", COIN_KEY, COIN_SETTLEMENT),
+                    created_at: DateTime::parse_from_rfc3339("2018-12-07T19:31:28+09:00").unwrap(),
+                },
+                want: Some(LossCut(LossCutParam {
+                    pair: Pair {
+                        key: COIN_KEY.to_string(),
+                        settlement: COIN_SETTLEMENT.to_string(),
+                    },
+                    open_order_id: 100,
+                    amount: 1.0,
+                })),
+            },
+        );
+
+        for (name, p) in params.iter() {
+            let mut config = make_config();
+            config.loss_cut_rate_ratio = p.loss_cut_rate_ratio;
+
+            let strategy = ScalpingStrategy { config: &config };
+            let mut info = make_info();
+            info.sell_rates
+                .insert(format!("{}_{}", COIN_KEY, COIN_SETTLEMENT), p.sell_rate);
+
+            let got = strategy.check_loss_cut(&info, &p.open_order);
+            assert!(got.is_ok(), "{}, failure: want: ok, got: err", name);
+
+            let got = got.unwrap();
+            if let Some(want) = &p.want {
+                assert!(got.is_some(), "{}, failure: want: some, got: none", name);
+                assert_eq!(
+                    mem::discriminant(&got.unwrap()),
+                    mem::discriminant(want),
+                    "{}, failure",
+                    name
+                );
+            } else {
+                assert!(
+                    got.is_none(),
+                    "{}, failure: want: none, got: {:?}",
+                    name,
+                    got
+                );
+            }
+        }
+    }
+
     fn make_config() -> Config {
         Config {
             bot_name: "dummy_bot_name".to_string(),
-            target_pair: "btc_jpy".to_string(),
+            target_pair: format!("{}_{}", COIN_KEY, COIN_SETTLEMENT),
             interval_sec: 0,
             rate_period_minutes: 0,
             external_service_wait_interval_sec: 0,
@@ -295,18 +643,21 @@ mod tests {
 
     fn make_info() -> TradeInfo {
         let mut sell_rates = HashMap::new();
-        sell_rates.insert("btc_jpy".to_string(), 5000000.0);
+        sell_rates.insert(
+            format!("{}_{}", COIN_KEY, COIN_SETTLEMENT).to_string(),
+            5000000.0,
+        );
 
         let mut balances = HashMap::new();
         balances.insert(
-            "jpy".to_string(),
+            COIN_SETTLEMENT.to_string(),
             Balance {
                 amount: 100000.0,
                 reserved: 0.0,
             },
         );
         balances.insert(
-            "btc".to_string(),
+            COIN_KEY.to_string(),
             Balance {
                 amount: 0.0,
                 reserved: 0.0,
@@ -335,8 +686,8 @@ mod tests {
 
         TradeInfo {
             pair: Pair {
-                key: "btc".to_string(),
-                settlement: "jpy".to_string(),
+                key: COIN_KEY.to_string(),
+                settlement: COIN_SETTLEMENT.to_string(),
             },
             sell_rates: sell_rates,
             buy_rate: 5000000.0,
