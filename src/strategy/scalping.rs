@@ -1,4 +1,6 @@
-use crate::bot::model::{ActionType,AvgDownParam, EntryParam, LossCutParam, NotifyParam,TradeInfo};
+use crate::bot::model::{
+    ActionType, AvgDownParam, EntryParam, LossCutParam, NotifyParam, TradeInfo,
+};
 use crate::coincheck::model::Pair;
 use crate::coincheck::model::{OpenOrder, OrderType};
 use crate::error::MyResult;
@@ -35,8 +37,8 @@ impl Strategy for ScalpingStrategy<'_> {
         }
 
         debug!("========== check entry ==========");
-        let skip = self.check_entry_skip(info, buy_jpy_per_lot)?;
-        if skip {
+        let should = self.should_check_entry(info, buy_jpy_per_lot)?;
+        if !should {
             return Ok(actions);
         }
 
@@ -166,8 +168,7 @@ impl ScalpingStrategy<'_> {
             return Ok(None);
         }
 
-        let (market_buy_amount, memo) =
-            util::calc_avg_down_buy_amount(buy_jpy_per_lot, open_order);
+        let (market_buy_amount, memo) = util::calc_avg_down_buy_amount(buy_jpy_per_lot, open_order);
         info!("{} <= {}", "AVG Down".red(), memo);
 
         let action = ActionType::AvgDown(AvgDownParam {
@@ -182,8 +183,8 @@ impl ScalpingStrategy<'_> {
         Ok(Some(action))
     }
 
-    fn check_entry_skip(&self, info: &TradeInfo, buy_jpy_per_lot: f64) -> MyResult<bool> {
-        let mut skip = false;
+    fn should_check_entry(&self, info: &TradeInfo, buy_jpy_per_lot: f64) -> MyResult<bool> {
+        let mut should = true;
 
         // 長期トレンドが下降トレンドならスキップ
         // 移動平均の短期が長期より下なら下降トレンドと判断
@@ -192,7 +193,7 @@ impl ScalpingStrategy<'_> {
         let (is_down_trend, memo) = util::is_down_trend(wma_short, wma_long);
         if is_down_trend {
             info!("{} <= {}", "SKIP".red(), memo,);
-            skip = true;
+            should = false;
         } else {
             debug!("{}", format!("NOT SKIP <= {}", memo,).blue());
         }
@@ -205,7 +206,7 @@ impl ScalpingStrategy<'_> {
         );
         if has_near_rate_order {
             info!("{} <= {}", "SKIP".red(), memo);
-            skip = true;
+            should = false;
         } else {
             debug!("{}", format!("NOT SKIP <= {}", memo).blue());
         }
@@ -219,7 +220,7 @@ impl ScalpingStrategy<'_> {
             debug!("{}", format!("NOT SKIP <= {}", memo,).blue());
         } else {
             info!("{} <= {}", "SKIP".red(), memo);
-            skip = true;
+            should = false;
         }
 
         // 短期の売りと買いの出来高差が一定以上ならスキップ
@@ -246,7 +247,7 @@ impl ScalpingStrategy<'_> {
 
         if is_over_sell {
             info!("{} <= {}", "SKIP".red(), memo);
-            skip = true;
+            should = false;
         } else {
             debug!("{}", format!("NOT SKIP <= {}", memo).blue());
         }
@@ -265,12 +266,12 @@ impl ScalpingStrategy<'_> {
 
         if is_board_heavy {
             info!("{} <= {}", "SKIP".red(), memo);
-            skip = true;
+            should = false;
         } else {
             debug!("{}", format!("NOT SKIP <= {}", memo).blue());
         }
 
-        Ok(skip)
+        Ok(should)
     }
 
     // レジスタンスラインがブレイクアウトならエントリー
