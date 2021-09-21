@@ -1,4 +1,5 @@
 use crate::coincheck::model::Pair;
+use chrono::Utc;
 
 #[derive(Debug)]
 pub struct Market {
@@ -33,7 +34,7 @@ impl MarketsMethods for Markets {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MarketSummary {
     pub count: u64,
     pub recorded_at_begin: chrono::NaiveDateTime,
@@ -45,6 +46,24 @@ pub struct MarketSummary {
     pub ex_volume_sell_total: f64,
     pub ex_volume_buy_total: f64,
     pub trade_frequency_ratio: f64,
+}
+
+impl Default for MarketSummary {
+    fn default() -> Self {
+        let now = Utc::now();
+        Self {
+            count: 0,
+            recorded_at_begin: now.naive_utc(),
+            recorded_at_end: now.naive_utc(),
+            ex_rate_sell_max: 0.0,
+            ex_rate_sell_min: 0.0,
+            ex_rate_buy_max: 0.0,
+            ex_rate_buy_min: 0.0,
+            ex_volume_sell_total: 0.0,
+            ex_volume_buy_total: 0.0,
+            trade_frequency_ratio: 0.0,
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -1,5 +1,6 @@
 use crate::bot::action::ActionBehavior;
 use crate::bot::analyze::TradeInfo;
+use crate::bot::analyze::TradeInfoParam;
 use crate::bot::model::ActionType;
 use crate::coincheck::model::{Balance, OpenOrder, OrderType, Pair};
 use crate::config::Config;
@@ -58,6 +59,7 @@ where
             )
             .yellow(),
         );
+        debug!("sell_rates:{:?}", info.sell_rates);
 
         let buy_jpy_per_lot = self.calc_buy_jpy()?;
 
@@ -68,81 +70,73 @@ where
     }
 
     async fn fetch(&self, now: &DateTime<Utc>) -> MyResult<TradeInfo> {
-        let pair = Pair::new(&self.config.target_pair)?;
-        let buy_rate = self
-            .coincheck_client
-            .get_exchange_orders_rate(OrderType::Buy, &self.config.target_pair)
-            .await?;
+        let mut param: TradeInfoParam = Default::default();
 
-        let balances = self.coincheck_client.get_accounts_balance().await?;
-        let mut sell_rates: HashMap<String, f64> = HashMap::new();
-        for (k, _v) in balances.iter() {
-            if k == &pair.settlement {
+        param.pair = Pair::new(&self.config.target_pair)?;
+        param.balances = self.coincheck_client.get_accounts_balance().await?;
+
+        let mut sell_rates = HashMap::new();
+        for (k, _v) in param.balances.iter() {
+            if k == &param.pair.settlement {
                 continue;
             }
-            let p = format!("{}_{}", k, &pair.settlement);
+            let p = format!("{}_{}", k, &param.pair.settlement);
             let r = self
                 .coincheck_client
                 .get_exchange_orders_rate(OrderType::Sell, &p)
                 .await?;
             sell_rates.insert(p, r);
         }
+        param.sell_rates = sell_rates;
+        debug!("sell_rates:{:?}", param.sell_rates);
 
-        let begin = *now - Duration::minutes(self.config.rate_period_minutes);
-        let markets = self
-            .mysql_client
-            .select_markets(&self.config.target_pair, begin)?;
-        let rate_histories = markets.rate_histories();
-        let sell_volumes = markets.sell_volumes();
-        let buy_volumes = markets.buy_volumes();
+        param.buy_rate = self
+            .coincheck_client
+            .get_exchange_orders_rate(OrderType::Buy, &self.config.target_pair)
+            .await?;
 
-        let mut open_orders: Vec<OpenOrder> = vec![];
+        let mut open_orders = vec![];
         for o in self.coincheck_client.get_exchange_orders_opens().await? {
             if o.pair == self.config.target_pair {
                 open_orders.push(o);
             }
         }
+        param.open_orders = open_orders;
 
-        let support_lines_long = TradeInfo::support_lines(
-            &rate_histories,
+        let begin = *now - Duration::minutes(self.config.rate_period_minutes);
+        let markets = self
+            .mysql_client
+            .select_markets(&self.config.target_pair, begin)?;
+        param.rate_histories = markets.rate_histories();
+        param.sell_volumes = markets.sell_volumes();
+        param.buy_volumes = markets.buy_volumes();
+
+        param.support_lines_long = TradeInfoParam::support_lines(
+            &param.rate_histories,
             self.config.support_line_period_long,
             self.config.support_line_offset,
         )?;
-        let support_lines_short = TradeInfo::support_lines(
-            &rate_histories,
+        param.support_lines_short = TradeInfoParam::support_lines(
+            &param.rate_histories,
             self.config.support_line_period_short,
             self.config.support_line_offset,
         )?;
-        let resistance_lines = TradeInfo::resistance_lines(
-            &rate_histories,
+        param.resistance_lines = TradeInfoParam::resistance_lines(
+            &param.rate_histories,
             self.config.resistance_line_period,
             self.config.resistance_line_offset,
         )?;
 
-        let order_books = self
+        param.order_books = self
             .coincheck_client
             .get_order_books(&self.config.target_pair)
             .await?;
 
-        let market_summary = self
+        param.market_summary = self
             .mysql_client
             .select_market_summary(&self.config.target_pair, 1)?;
 
-        Ok(TradeInfo {
-            pair: pair,
-            sell_rates: sell_rates,
-            buy_rate: buy_rate,
-            balances: balances,
-            open_orders: open_orders,
-            rate_histories: rate_histories,
-            sell_volumes: sell_volumes,
-            buy_volumes: buy_volumes,
-            support_lines_long: support_lines_long,
-            support_lines_short: support_lines_short,
-            resistance_lines: resistance_lines,
-            order_books: order_books,
-            market_summary: market_summary,
-        })
+        Ok(param.build()?)
     }
 
     // fn fetch_balance_key(&self, balances: &HashMap<String, Balance>) -> MyResult<Balance> {

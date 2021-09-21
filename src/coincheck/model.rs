@@ -7,7 +7,7 @@ use chrono::DateTime;
 use chrono::FixedOffset;
 use serde::Deserialize;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Pair {
     pub key: String,
     pub settlement: String,
@@ -28,7 +28,7 @@ impl Pair {
     }
 }
 
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(Deserialize, Debug, PartialEq, Clone)]
 pub enum OrderType {
     Sell,
     Buy,
@@ -57,13 +57,13 @@ impl OrderType {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Clone, Debug, Default)]
 pub struct OrderBooks {
     pub asks: Vec<OrderBook>,
     pub bids: Vec<OrderBook>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct OrderBook {
     pub rate: f64,
     pub amount: f64,
@@ -135,7 +135,7 @@ pub struct Order {
     pub created_at: DateTime<FixedOffset>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct OpenOrder {
     pub id: u64,
     pub rate: f64,

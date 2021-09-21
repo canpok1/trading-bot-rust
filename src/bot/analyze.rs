@@ -7,69 +7,12 @@ use crate::mysql::model::MarketSummary;
 use log::debug;
 use std::collections::HashMap;
 
-// #[derive(Debug)]
-// pub struct TradeInfoBuilder {
-//     pub pair: Option<Pair>,
-//     pub sell_rate: Option<f64>,
-//     pub buy_rate: Option<f64>,
-//     pub balance_key: Option<Balance>,
-//     pub balance_settlement: Option<Balance>,
-//     pub open_orders: Option<Box<Vec<OpenOrder>>>,
-//     pub rate_histories: Option<Vec<f64>>,
-// }
-//
-// impl TradeInfoBuilder {
-//     pub fn new() -> TradeInfoBuilder {
-//         TradeInfoBuilder {
-//             pair: None,
-//             sell_rate: None,
-//             buy_rate: None,
-//             balance_key: None,
-//             balance_settlement: None,
-//             open_orders: None,
-//             rate_histories: None,
-//         }
-//     }
-//
-//     pub fn build(&mut self) -> Result<TradeInfo, Box<dyn Error>> {
-//         let open_orders = *self
-//             .open_orders
-//             .clone()
-//             .ok_or("open_orders is none, it is required field")?;
-//
-//         Ok(TradeInfo {
-//             pair: self
-//                 .pair
-//                 .clone()
-//                 .ok_or("pair is none, it is required field")?,
-//             sell_rate: self
-//                 .sell_rate
-//                 .ok_or("sell_rate is none, it is required field")?,
-//             buy_rate: self
-//                 .buy_rate
-//                 .ok_or("buy_rate is none, it is required field")?,
-//             balance_key: self
-//                 .balance_key
-//                 .clone()
-//                 .ok_or("balance_key is none, it is required field")?,
-//             balance_settlement: self
-//                 .balance_settlement
-//                 .clone()
-//                 .ok_or("balance_settlement is none, it is required field")?,
-//             open_orders: open_orders,
-//             rate_histories: self
-//                 .rate_histories
-//                 .ok_or("rate_histories is none, it is required field")?,
-//         })
-//     }
-// }
-
 #[derive(Debug)]
 pub struct TradeInfo {
     pub pair: Pair,
-    pub sell_rates: HashMap<String, f64>, // (k,v)=(pair,rate)
-    pub buy_rate: f64,
     pub balances: HashMap<String, Balance>, // (k,v)=(coin,balance)
+    pub sell_rates: HashMap<String, f64>,   // (k,v)=(pair,rate)
+    pub buy_rate: f64,
     pub open_orders: Vec<OpenOrder>,
     pub rate_histories: Vec<f64>,
     pub sell_volumes: Vec<f64>,
@@ -81,59 +24,40 @@ pub struct TradeInfo {
     pub market_summary: MarketSummary,
 }
 
-impl TradeInfo {
-    pub fn get_sell_rate(&self) -> MyResult<f64> {
-        let key = self.pair.to_string();
-        if let Some(rate) = self.sell_rates.get(&key) {
-            Ok(*rate)
-        } else {
-            Err(Box::new(KeyNotFound {
-                key: key,
-                collection_name: "sell_rates".to_owned(),
-            }))
-        }
-    }
+#[derive(Debug, Default)]
+pub struct TradeInfoParam {
+    pub pair: Pair,
+    pub balances: HashMap<String, Balance>, // (k,v)=(coin,balance)
+    pub sell_rates: HashMap<String, f64>,   // (k,v)=(pair,rate)
+    pub buy_rate: f64,
+    pub open_orders: Vec<OpenOrder>,
+    pub rate_histories: Vec<f64>,
+    pub sell_volumes: Vec<f64>,
+    pub buy_volumes: Vec<f64>,
+    pub support_lines_long: Vec<f64>,
+    pub support_lines_short: Vec<f64>,
+    pub resistance_lines: Vec<f64>,
+    pub order_books: OrderBooks,
+    pub market_summary: MarketSummary,
+}
 
-    pub fn get_balance_key(&self) -> MyResult<&Balance> {
-        let key = &self.pair.key;
-        if let Some(b) = self.balances.get(key) {
-            Ok(b)
-        } else {
-            Err(Box::new(KeyNotFound {
-                key: key.to_owned(),
-                collection_name: "balances".to_owned(),
-            }))
-        }
-    }
-
-    pub fn get_balance_settlement(&self) -> MyResult<&Balance> {
-        let key = &self.pair.settlement;
-        if let Some(b) = self.balances.get(key) {
-            Ok(b)
-        } else {
-            Err(Box::new(KeyNotFound {
-                key: key.to_owned(),
-                collection_name: "balances".to_owned(),
-            }))
-        }
-    }
-
-    pub fn calc_total_balance_jpy(&self) -> f64 {
-        let mut total = 0.0;
-        for (k, balance) in self.balances.iter() {
-            if *k == self.pair.settlement {
-                total += balance.total();
-            } else {
-                let pair = format!("{}_{}", k, self.pair.settlement);
-                let rate = self.sell_rates.get(&pair).unwrap();
-                total += balance.total() * rate;
-            }
-        }
-        total
-    }
-
-    pub fn has_position(&self) -> MyResult<bool> {
-        Ok(self.get_balance_key()?.total() * self.get_sell_rate()? >= 1.0)
+impl TradeInfoParam {
+    pub fn build(&self) -> MyResult<TradeInfo> {
+        Ok(TradeInfo {
+            pair: self.pair.clone(),
+            balances: self.balances.clone(),
+            sell_rates: self.sell_rates.clone(),
+            buy_rate: self.buy_rate,
+            open_orders: self.open_orders.clone(),
+            rate_histories: self.rate_histories.clone(),
+            sell_volumes: self.sell_volumes.clone(),
+            buy_volumes: self.buy_volumes.clone(),
+            support_lines_long: self.support_lines_long.clone(),
+            support_lines_short: self.support_lines_short.clone(),
+            resistance_lines: self.resistance_lines.clone(),
+            order_books: self.order_books.clone(),
+            market_summary: self.market_summary.clone(),
+        })
     }
 
     pub fn support_lines(
@@ -171,12 +95,12 @@ impl TradeInfo {
             if x.len() <= 3 {
                 break;
             }
-            let (aa, bb) = TradeInfo::line_fit(&x, &y);
+            let (aa, bb) = TradeInfoParam::line_fit(&x, &y);
             a = aa;
             b = bb;
             begin = false;
         }
-        Ok(TradeInfo::make_line(a, b, rate_histories.len()))
+        Ok(TradeInfoParam::make_line(a, b, rate_histories.len()))
     }
 
     pub fn resistance_lines(
@@ -214,12 +138,12 @@ impl TradeInfo {
             if x.len() <= 3 {
                 break;
             }
-            let (aa, bb) = TradeInfo::line_fit(&x, &y);
+            let (aa, bb) = TradeInfoParam::line_fit(&x, &y);
             a = aa;
             b = bb;
             begin = false;
         }
-        Ok(TradeInfo::make_line(a, b, rate_histories.len()))
+        Ok(TradeInfoParam::make_line(a, b, rate_histories.len()))
     }
 
     pub fn is_upper_rebound(
@@ -284,6 +208,92 @@ impl TradeInfo {
         false
     }
 
+    fn line_fit(x: &Vec<f64>, y: &Vec<f64>) -> (f64, f64) {
+        let ndata = x.len();
+        if ndata < 2 {
+            return (0.0, 0.0);
+        }
+
+        let mut sx = 0.0;
+        let mut sy = 0.0;
+        for i in 0..ndata {
+            sx += x[i];
+            sy += y[i];
+        }
+        let mut st2 = 0.0;
+        let mut a = 0.0;
+        let sxoss = sx / (ndata as f64);
+        for i in 0..ndata {
+            let t = x[i] - sxoss;
+            st2 += t * t;
+            a += t * y[i];
+        }
+        a /= st2;
+
+        let b = (sy - sx * a) / (ndata as f64);
+        (a, b)
+    }
+
+    fn make_line(a: f64, b: f64, size: usize) -> Vec<f64> {
+        (0..size).map(|i| a * (i as f64) + b).collect()
+    }
+}
+
+impl TradeInfo {
+    pub fn get_sell_rate(&self) -> MyResult<f64> {
+        let key = self.pair.to_string();
+        if let Some(rate) = self.sell_rates.get(&key) {
+            Ok(*rate)
+        } else {
+            Err(Box::new(KeyNotFound {
+                key: key,
+                collection_name: "sell_rates".to_owned(),
+            }))
+        }
+    }
+
+    pub fn get_balance_key(&self) -> MyResult<&Balance> {
+        let key = &self.pair.key;
+        if let Some(b) = self.balances.get(key) {
+            Ok(b)
+        } else {
+            Err(Box::new(KeyNotFound {
+                key: key.to_owned(),
+                collection_name: "balances".to_owned(),
+            }))
+        }
+    }
+
+    pub fn get_balance_settlement(&self) -> MyResult<&Balance> {
+        let key = &self.pair.settlement;
+        if let Some(b) = self.balances.get(key) {
+            Ok(b)
+        } else {
+            Err(Box::new(KeyNotFound {
+                key: key.to_owned(),
+                collection_name: "balances".to_owned(),
+            }))
+        }
+    }
+
+    pub fn calc_total_balance_jpy(&self) -> f64 {
+        let mut total = 0.0;
+        for (k, balance) in self.balances.iter() {
+            if *k == self.pair.settlement {
+                total += balance.total();
+            } else {
+                let pair = format!("{}_{}", k, self.pair.settlement);
+                let rate = self.sell_rates.get(&pair).unwrap();
+                total += balance.total() * rate;
+            }
+        }
+        total
+    }
+
+    pub fn has_position(&self) -> MyResult<bool> {
+        Ok(self.get_balance_key()?.total() * self.get_sell_rate()? >= 1.0)
+    }
+
     pub fn is_rate_rising(&self) -> Option<bool> {
         if let Some(before_rate) = self.rate_histories.last() {
             let sell_rate = self.get_sell_rate();
@@ -324,35 +334,5 @@ impl TradeInfo {
         let wma_short = self.wma(short_period)?;
         let wma_long = self.wma(long_period)?;
         Ok(wma_short > wma_long)
-    }
-
-    fn line_fit(x: &Vec<f64>, y: &Vec<f64>) -> (f64, f64) {
-        let ndata = x.len();
-        if ndata < 2 {
-            return (0.0, 0.0);
-        }
-
-        let mut sx = 0.0;
-        let mut sy = 0.0;
-        for i in 0..ndata {
-            sx += x[i];
-            sy += y[i];
-        }
-        let mut st2 = 0.0;
-        let mut a = 0.0;
-        let sxoss = sx / (ndata as f64);
-        for i in 0..ndata {
-            let t = x[i] - sxoss;
-            st2 += t * t;
-            a += t * y[i];
-        }
-        a /= st2;
-
-        let b = (sy - sx * a) / (ndata as f64);
-        (a, b)
-    }
-
-    fn make_line(a: f64, b: f64, size: usize) -> Vec<f64> {
-        (0..size).map(|i| a * (i as f64) + b).collect()
     }
 }
