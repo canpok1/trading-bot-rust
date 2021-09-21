@@ -1,4 +1,5 @@
 use chrono::Utc;
+use trading_bot_rust::bot::action::ActionBehavior;
 use trading_bot_rust::bot::base::Bot;
 use trading_bot_rust::config::Config;
 use trading_bot_rust::strategy::base::StrategyType;
@@ -75,12 +76,20 @@ async fn main() {
         StrategyType::Scalping => strategy::scalping::ScalpingStrategy { config: &config },
     };
 
+    let action_behavior = ActionBehavior {
+        config: &config,
+        slack_client: &slack_cli,
+        mysql_client: &mysql_cli,
+        coincheck_client: &coincheck_cli,
+    };
+
     let bot = Bot {
         config: &config,
         coincheck_client: &coincheck_cli,
         mysql_client: &mysql_cli,
         slack_client: &slack_cli,
         strategy: &strategy,
+        action_behavior: &action_behavior,
     };
 
     loop {

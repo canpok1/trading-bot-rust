@@ -26,6 +26,7 @@ pub struct SellParam {
 #[derive(Debug, PartialEq)]
 pub struct AvgDownParam {
     pub pair: Pair,
+    pub buy_jpy_per_lot: f64,
     pub market_buy_amount: f64,
     pub open_order_id: u64,
     pub open_order_rate: f64,

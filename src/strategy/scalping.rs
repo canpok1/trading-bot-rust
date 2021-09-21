@@ -176,6 +176,7 @@ impl ScalpingStrategy<'_> {
 
         let action = ActionType::AvgDown(AvgDownParam {
             pair: Pair::new(&self.config.target_pair)?,
+            buy_jpy_per_lot: buy_jpy_per_lot,
             market_buy_amount: market_buy_amount,
             open_order_id: open_order.id,
             open_order_rate: open_order.rate,
