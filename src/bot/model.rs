@@ -13,6 +13,7 @@ pub struct EntryParam {
     pub pair: Pair,
     pub amount: f64,
     pub profit_ratio: f64,
+    pub offset_sell_rate_ratio: f64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -38,7 +39,15 @@ pub struct AvgDownParam {
     pub open_order_id: u64,
     pub open_order_rate: f64,
     pub open_order_amount: f64,
+    pub offset_sell_rate_ratio: f64,
     pub memo: String,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct SetProfitParam {
+    pub pair: Pair,
+    pub open_order_id: u64,
+    pub amount: f64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -53,6 +62,7 @@ pub enum ActionType {
     LossCut(LossCutParam),
     Sell(SellParam),
     AvgDown(AvgDownParam),
+    SetProfit(SetProfitParam),
     Notify(NotifyParam),
 }
 
@@ -78,7 +88,7 @@ pub struct TradeInfo {
     pub sell_rates: HashMap<String, f64>,   // (k,v)=(pair,rate)
     pub buy_rate: f64,
     pub open_orders: Vec<OpenOrder>,
-    pub rate_histories: Vec<f64>,
+    pub sell_rate_histories: Vec<f64>,
     pub sell_volumes: Vec<f64>,
     pub buy_volumes: Vec<f64>,
     pub support_lines_long: StraightLine,
@@ -95,7 +105,7 @@ pub struct TradeInfoParam {
     pub sell_rates: HashMap<String, f64>,   // (k,v)=(pair,rate)
     pub buy_rate: f64,
     pub open_orders: Vec<OpenOrder>,
-    pub rate_histories: Vec<f64>,
+    pub sell_rate_histories: Vec<f64>,
     pub sell_volumes: Vec<f64>,
     pub buy_volumes: Vec<f64>,
     pub support_lines_long: StraightLine,
@@ -113,7 +123,7 @@ impl TradeInfoParam {
             sell_rates: self.sell_rates.clone(),
             buy_rate: self.buy_rate,
             open_orders: self.open_orders.clone(),
-            rate_histories: self.rate_histories.clone(),
+            sell_rate_histories: self.sell_rate_histories.clone(),
             sell_volumes: self.sell_volumes.clone(),
             buy_volumes: self.buy_volumes.clone(),
             support_lines_long: self.support_lines_long.clone(),
@@ -297,17 +307,17 @@ impl TradeInfo {
     }
 
     pub fn wma(&self, period: usize) -> MyResult<f64> {
-        if self.rate_histories.len() < period {
+        if self.sell_rate_histories.len() < period {
             Err(Box::new(TooShort {
                 name: "rate histories".to_owned(),
-                len: self.rate_histories.len(),
+                len: self.sell_rate_histories.len(),
                 required: period,
             }))
         } else {
             let mut sum: f64 = 0.0;
             let mut weight_sum: f64 = 0.0;
-            let begin = self.rate_histories.len() - period;
-            for (i, r) in self.rate_histories[begin..].iter().enumerate() {
+            let begin = self.sell_rate_histories.len() - period;
+            for (i, r) in self.sell_rate_histories[begin..].iter().enumerate() {
                 let weight = (period - i) as f64;
                 sum += r * weight;
                 weight_sum += weight;

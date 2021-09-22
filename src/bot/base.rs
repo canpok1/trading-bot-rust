@@ -106,22 +106,22 @@ where
         let markets = self
             .mysql_client
             .select_markets(&self.config.target_pair, begin)?;
-        param.rate_histories = markets.rate_histories();
+        param.sell_rate_histories = markets.sell_rate_histories();
         param.sell_volumes = markets.sell_volumes();
         param.buy_volumes = markets.buy_volumes();
 
         param.support_lines_long = TradeInfoParam::support_lines(
-            &param.rate_histories,
+            &param.sell_rate_histories,
             self.config.support_line_period_long,
             self.config.support_line_offset,
         )?;
         param.support_lines_short = TradeInfoParam::support_lines(
-            &param.rate_histories,
+            &param.sell_rate_histories,
             self.config.support_line_period_short,
             self.config.support_line_offset,
         )?;
         param.resistance_lines = TradeInfoParam::resistance_lines(
-            &param.rate_histories,
+            &param.sell_rate_histories,
             self.config.resistance_line_period,
             self.config.resistance_line_offset,
         )?;

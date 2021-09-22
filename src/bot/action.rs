@@ -3,6 +3,7 @@ use crate::bot::model::AvgDownParam;
 use crate::bot::model::EntryParam;
 use crate::bot::model::LossCutParam;
 use crate::bot::model::SellParam;
+use crate::bot::model::SetProfitParam;
 use crate::coincheck::model::Balance;
 use crate::coincheck::model::NewOrder;
 use crate::coincheck::model::Pair;
@@ -68,6 +69,23 @@ where
                         error!("{}", err);
                     }
                     error!("{} loss cut, {} ({:?})", "failure".red(), err, param);
+                }
+            },
+            ActionType::SetProfit(param) => match self.action_set_profit(&param).await {
+                Ok(_) => {
+                    info!("{} set profit ({:?})", "success".green(), param);
+                }
+                Err(err) => {
+                    let message = format!("{} set profit , {} ({:?})", "failure".red(), err, param);
+                    error!("{}", message);
+                    if let Err(err) = self
+                        .slack_client
+                        .post_message(&TextMessage { text: message })
+                        .await
+                    {
+                        error!("{}", err);
+                    }
+                    error!("{} set profit , {} ({:?})", "failure".red(), err, param);
                 }
             },
             ActionType::Sell(param) => match self.action_sell(&param).await {
@@ -137,7 +155,7 @@ where
         // 売り注文
         let used_jpy = param.amount;
         let profit_jpy = used_jpy * param.profit_ratio;
-        let rate = (used_jpy + profit_jpy) / amount_coin;
+        let rate = (used_jpy + profit_jpy) / amount_coin * (1.0 + param.offset_sell_rate_ratio);
 
         self.sell(&param.pair, rate, amount_coin).await?;
 
@@ -252,8 +270,13 @@ where
 
         // ナンピン後の注文は二分割する（ナンピンのための買注文の金額を肥大化させないため）
         let amount_coin = (param.open_order_amount + amount_new_coin) / 2.0;
-        let rate = ((param.open_order_amount * param.open_order_rate) + param.market_buy_amount)
-            / (amount_coin * 2.0);
+        let rate = {
+            let ratio = 1.0 + param.offset_sell_rate_ratio;
+            let rate_without_offset = param.open_order_rate / ratio;
+            ((param.open_order_amount * rate_without_offset) + param.market_buy_amount)
+                / (amount_coin * 2.0)
+                * ratio
+        };
         self.sell(&param.pair, rate, amount_coin).await?;
         self.sell(&param.pair, rate, amount_coin).await?;
 
@@ -263,6 +286,37 @@ where
                 text: format!(
                     "avg down completed!\npair:`{}`,rate:`{:.3}`\namount:`{:.3} * 2`\nparam:`{:?}`",
                     self.config.target_pair, rate, amount_coin, param
+                ),
+            })
+            .await
+        {
+            warn!(
+                "{}",
+                format!("failed to send message to slack, {}", err).yellow()
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn action_set_profit(&self, param: &SetProfitParam) -> MyResult<()> {
+        if self.config.demo_mode {
+            info!("{}", "skip set profit as demo mode".green());
+            return Ok(());
+        }
+
+        // 注文キャンセル
+        self.cancel(param.open_order_id).await?;
+
+        // 成行売り注文
+        self.market_sell(&param.pair, param.amount).await?;
+
+        if let Err(err) = self
+            .slack_client
+            .post_message(&TextMessage {
+                text: format!(
+                    "set profit completed!\npair:`{}`\nparam:`{:?}`",
+                    self.config.target_pair, param
                 ),
             })
             .await

@@ -1,5 +1,6 @@
 use crate::bot::model::{
-    ActionType, AvgDownParam, EntryParam, LossCutParam, NotifyParam, TradeInfo,
+    ActionType, AvgDownParam, EntryParam, LineMethod, LossCutParam, NotifyParam, SetProfitParam,
+    TradeInfo,
 };
 use crate::coincheck::model::Pair;
 use crate::coincheck::model::{OpenOrder, OrderType};
@@ -30,8 +31,8 @@ impl Strategy for ScalpingStrategy<'_> {
             return Ok(actions);
         }
 
-        debug!("========== check loss cut or avd down ==========");
-        let mut action_types = self.check_loss_cut_or_avg_down(now, info, buy_jpy_per_lot)?;
+        debug!("========== check open orders ==========");
+        let mut action_types = self.check_open_orders(now, info, buy_jpy_per_lot)?;
         if !action_types.is_empty() {
             actions.append(&mut action_types);
         }
@@ -86,8 +87,8 @@ impl ScalpingStrategy<'_> {
         Ok(Some(action))
     }
 
-    // 未決済注文のレートが現レートの一定以下なら損切りorナンピン
-    fn check_loss_cut_or_avg_down(
+    // 未決済注文の確認（損切り, ナンピン, 利確）
+    fn check_open_orders(
         &self,
         now: &DateTime<Utc>,
         info: &TradeInfo,
@@ -108,6 +109,10 @@ impl ScalpingStrategy<'_> {
                         actions.push(a);
                         continue;
                     }
+                    if let Some(a) = self.check_set_profit(info, open_order)? {
+                        actions.push(a);
+                        continue;
+                    }
                 }
                 _ => {}
             }
@@ -125,6 +130,7 @@ impl ScalpingStrategy<'_> {
             info.get_sell_rate()?,
             open_order,
             self.config.loss_cut_rate_ratio,
+            self.config.offset_sell_rate_ratio,
         );
         if should_loss_cut {
             info!("{} <= {}", "Loss Cut".red(), memo,);
@@ -135,6 +141,7 @@ impl ScalpingStrategy<'_> {
             });
             Ok(Some(action))
         } else {
+            debug!("{}", format!("NONE <= {}", memo).blue(),);
             Ok(None)
         }
     }
@@ -149,6 +156,14 @@ impl ScalpingStrategy<'_> {
     ) -> MyResult<Option<ActionType>> {
         let slope = util::calc_slope(&info.support_lines_short)?;
         if slope <= 0.0 {
+            debug!(
+                "{}",
+                format!(
+                    "NONE <= should not avg down, support line is falling, slope:{:.3} < 0.0",
+                    slope
+                )
+                .blue()
+            );
             return Ok(None);
         }
 
@@ -157,6 +172,7 @@ impl ScalpingStrategy<'_> {
             info.buy_rate,
             open_order,
             self.config.avg_down_rate_ratio,
+            self.config.offset_sell_rate_ratio,
             self.config.hold_limit_minutes,
         );
         if !should {
@@ -164,7 +180,11 @@ impl ScalpingStrategy<'_> {
             return Ok(None);
         }
 
-        let (market_buy_amount, memo) = util::calc_avg_down_buy_amount(buy_jpy_per_lot, open_order);
+        let (market_buy_amount, memo) = util::calc_avg_down_buy_amount(
+            buy_jpy_per_lot,
+            open_order,
+            self.config.offset_sell_rate_ratio,
+        );
         info!("{} <= {}", "AVG Down".red(), memo);
 
         let action = ActionType::AvgDown(AvgDownParam {
@@ -174,9 +194,46 @@ impl ScalpingStrategy<'_> {
             open_order_id: open_order.id,
             open_order_rate: open_order.rate,
             open_order_amount: open_order.pending_amount,
+            offset_sell_rate_ratio: self.config.offset_sell_rate_ratio,
             memo: memo,
         });
         Ok(Some(action))
+    }
+
+    // 利確？
+    fn check_set_profit(
+        &self,
+        info: &TradeInfo,
+        open_order: &OpenOrder,
+    ) -> MyResult<Option<ActionType>> {
+        let current = info.get_sell_rate()?;
+        if let Some(before) = info.sell_rate_histories.get_current() {
+            if current > before {
+                debug!("{}", format!("NONE <= should not set profit, rate is rising, current:{:.3} > before:{:.3}", current, before ).blue());
+                return Ok(None);
+            }
+        } else {
+            debug!(
+                "{}",
+                "NONE <= should not set profit, before rate is nothing".blue()
+            );
+            return Ok(None);
+        }
+
+        let (should_set_profit, memo) =
+            util::should_set_profit(current, open_order, self.config.offset_sell_rate_ratio);
+        if should_set_profit {
+            info!("{} <= {}", "Set Profit".green(), memo);
+            let action = ActionType::SetProfit(SetProfitParam {
+                pair: Pair::new(&self.config.target_pair)?,
+                open_order_id: open_order.id,
+                amount: open_order.pending_amount,
+            });
+            Ok(Some(action))
+        } else {
+            debug!("{}", format!("NONE <= {}", memo).blue());
+            Ok(None)
+        }
     }
 
     fn should_check_entry(&self, info: &TradeInfo, buy_jpy_per_lot: f64) -> MyResult<bool> {
@@ -301,7 +358,7 @@ impl ScalpingStrategy<'_> {
         // レジスタンスラインのすぐ上でリバウンドしてないならエントリーしない
         let (is_rebounded, memo) = util::is_rebounded(
             sell_rate,
-            &info.rate_histories,
+            &info.sell_rate_histories,
             &info.resistance_lines,
             self.config.resistance_line_width_ratio_upper,
             self.config.resistance_line_width_ratio_lower,
@@ -332,7 +389,7 @@ impl ScalpingStrategy<'_> {
         }
 
         // レート上昇中かチェック
-        let before_rate = *info.rate_histories.last().unwrap();
+        let before_rate = *info.sell_rate_histories.last().unwrap();
         if sell_rate <= before_rate {
             debug!(
                 "{}",
@@ -352,6 +409,7 @@ impl ScalpingStrategy<'_> {
             pair: Pair::new(&self.config.target_pair)?,
             amount: buy_jpy_per_lot,
             profit_ratio: self.config.profit_ratio_per_order,
+            offset_sell_rate_ratio: self.config.offset_sell_rate_ratio,
         })))
     }
 
@@ -366,7 +424,7 @@ impl ScalpingStrategy<'_> {
         // サポートラインすぐ上でリバウンドしていないならエントリーしない
         let (is_rebounded_long, memo_long) = util::is_rebounded(
             sell_rate,
-            &info.rate_histories,
+            &info.sell_rate_histories,
             &info.support_lines_long,
             self.config.support_line_width_ratio_upper,
             self.config.support_line_width_ratio_lower,
@@ -374,7 +432,7 @@ impl ScalpingStrategy<'_> {
         );
         let (is_rebounded_short, memo_short) = util::is_rebounded(
             sell_rate,
-            &info.rate_histories,
+            &info.sell_rate_histories,
             &info.support_lines_short,
             self.config.support_line_width_ratio_upper,
             self.config.support_line_width_ratio_lower,
@@ -408,6 +466,7 @@ impl ScalpingStrategy<'_> {
             pair: Pair::new(&self.config.target_pair)?,
             amount: buy_jpy_per_lot,
             profit_ratio: self.config.profit_ratio_per_order,
+            offset_sell_rate_ratio: self.config.offset_sell_rate_ratio,
         })))
     }
 }
@@ -513,6 +572,7 @@ mod tests {
         struct Param {
             sell_rate: f64,
             loss_cut_rate_ratio: f64,
+            offset_sell_rate_ratio: f64,
             open_order: OpenOrder,
             want: Option<ActionType>,
         }
@@ -520,11 +580,12 @@ mod tests {
         params.insert(
             "sell_rate is border rate or greater",
             Param {
-                sell_rate: 970000.0,
+                sell_rate: 97.0,
                 loss_cut_rate_ratio: 0.97,
+                offset_sell_rate_ratio: 0.01,
                 open_order: OpenOrder {
                     id: 0,
-                    rate: 1000000.0,
+                    rate: 101.0,
                     pending_amount: 1.0,
                     pending_market_buy_amount: None,
                     order_type: OrderType::Sell,
@@ -537,11 +598,12 @@ mod tests {
         params.insert(
             "sell_rate is less than border rate",
             Param {
-                sell_rate: 969999.9,
+                sell_rate: 96.9,
                 loss_cut_rate_ratio: 0.97,
+                offset_sell_rate_ratio: 0.01,
                 open_order: OpenOrder {
                     id: 100,
-                    rate: 1000000.0,
+                    rate: 101.0,
                     pending_amount: 1.0,
                     pending_market_buy_amount: None,
                     order_type: OrderType::Sell,
@@ -562,6 +624,7 @@ mod tests {
         for (name, p) in params.iter() {
             let mut config = make_config();
             config.loss_cut_rate_ratio = p.loss_cut_rate_ratio;
+            config.offset_sell_rate_ratio = p.offset_sell_rate_ratio;
 
             let strategy = ScalpingStrategy { config: &config };
             let mut info = make_info();
@@ -615,6 +678,7 @@ mod tests {
             rebound_check_period: 15,
             funds_ratio_per_order: 0.1,
             profit_ratio_per_order: 0.0015,
+            offset_sell_rate_ratio: 0.01,
             hold_limit_minutes: 10,
             avg_down_rate_ratio: 0.97,
             avg_down_rate_ratio_on_holding_expired: 0.98,
@@ -686,7 +750,7 @@ mod tests {
             buy_rate: 5000000.0,
             balances: balances,
             open_orders: vec![],
-            rate_histories: vec![],
+            sell_rate_histories: vec![],
             sell_volumes: vec![],
             buy_volumes: vec![],
             support_lines_long: vec![],

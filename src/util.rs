@@ -65,8 +65,9 @@ pub fn should_loss_cut(
     sell_rate: f64,
     open_order: &OpenOrder,
     loss_cut_rate_ratio: f64,
+    offset_sell_rate_ratio: f64,
 ) -> (bool, String) {
-    let lower = open_order.rate * loss_cut_rate_ratio;
+    let lower = open_order.rate / (1.0 + offset_sell_rate_ratio) * loss_cut_rate_ratio;
     if sell_rate < lower {
         (
             true,
@@ -91,9 +92,10 @@ pub fn should_avg_down(
     buy_rate: f64,
     open_order: &OpenOrder,
     avg_down_rate_ratio: f64,
+    offset_sell_rate_ratio: f64,
     hold_limit_minutes: i64,
 ) -> (bool, String) {
-    let lower = open_order.rate * avg_down_rate_ratio;
+    let lower = open_order.rate / (1.0 + offset_sell_rate_ratio) * avg_down_rate_ratio;
     let holding_term = *now - open_order.created_at.with_timezone(&Utc);
     let holding_limit = Duration::minutes(hold_limit_minutes);
     if buy_rate < lower {
@@ -123,8 +125,37 @@ pub fn should_avg_down(
     }
 }
 
-pub fn calc_avg_down_buy_amount(buy_jpy_per_lot: f64, open_order: &OpenOrder) -> (f64, String) {
-    let used_jpy = open_order.rate * open_order.pending_amount;
+pub fn should_set_profit(
+    sell_rate: f64,
+    open_order: &OpenOrder,
+    offset_sell_rate_ratio: f64,
+) -> (bool, String) {
+    let border = open_order.rate / (1.0 + offset_sell_rate_ratio);
+    if sell_rate > border {
+        (
+            true,
+            format!(
+                "should set profit, sell_rate:{:.3} > border:{:.3}",
+                sell_rate, border,
+            ),
+        )
+    } else {
+        (
+            false,
+            format!(
+                "should not set profit , sell_rate:{:.3} <= border:{:.3}",
+                sell_rate, border,
+            ),
+        )
+    }
+}
+
+pub fn calc_avg_down_buy_amount(
+    buy_jpy_per_lot: f64,
+    open_order: &OpenOrder,
+    offset_sell_rate_ratio: f64,
+) -> (f64, String) {
+    let used_jpy = open_order.rate / (1.0 + offset_sell_rate_ratio) * open_order.pending_amount;
     let mut used_jpy_tmp = 0.0;
     let mut lot = 1.0;
     while used_jpy_tmp <= used_jpy * 0.8 {

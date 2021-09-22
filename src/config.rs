@@ -51,6 +51,10 @@ pub struct Config {
     pub funds_ratio_per_order: f64,
     // 注文1回あたりの目標利益率（買い注文時のJPYに対する割合を指定）
     pub profit_ratio_per_order: f64,
+    // 指値売注文時の上方補正率（目標レートに対する割合を指定）
+    // 利益最大化のため指値売注文は目標より高いレート
+    // （例）本設定値を0.1にしたら目標レートの1.01倍で指値売注文
+    pub offset_sell_rate_ratio: f64,
 
     // ポジション保有期間の最大時間（分）
     pub hold_limit_minutes: i64,
