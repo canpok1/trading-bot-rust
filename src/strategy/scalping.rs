@@ -208,8 +208,8 @@ impl ScalpingStrategy<'_> {
     ) -> MyResult<Option<ActionType>> {
         let current = info.get_sell_rate()?;
         if let Some(before) = info.sell_rate_histories.get_current() {
-            if current > before {
-                debug!("{}", format!("NONE <= should not set profit, rate is rising, current:{:.3} > before:{:.3}", current, before ).blue());
+            if current >= before {
+                debug!("{}", format!("NONE <= should not set profit, rate is rising, current:{:.3} >= before:{:.3}", current, before ).blue());
                 return Ok(None);
             }
         } else {
