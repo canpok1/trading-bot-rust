@@ -37,12 +37,13 @@ impl Strategy for ScalpingStrategy<'_> {
             actions.append(&mut action_types);
         }
 
-        debug!("========== check entry ==========");
+        debug!("========== check skip entry ==========");
         let should = self.should_check_entry(info, buy_jpy_per_lot)?;
         if !should {
             return Ok(actions);
         }
 
+        debug!("========== check entry ==========");
         if let Some(action_type) = self.check_resistance_line_breakout(info, buy_jpy_per_lot)? {
             actions.push(action_type);
         } else if let Some(action_type) = self.check_support_line_rebound(info, buy_jpy_per_lot)? {
