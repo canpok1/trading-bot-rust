@@ -189,7 +189,7 @@ where
             bot_name: self.config.bot_name.to_owned(),
             pair: info.pair.to_string(),
             r#type: "resistance_line_value".to_owned(),
-            value: info.resistance_lines.get_current().unwrap(),
+            value: info.resistance_lines.get_latest().unwrap(),
             memo: "レジスタンスラインの現在値".to_owned(),
         })?;
 
@@ -205,7 +205,7 @@ where
             bot_name: self.config.bot_name.to_owned(),
             pair: info.pair.to_string(),
             r#type: "support_line_value".to_owned(),
-            value: info.support_lines_long.get_current().unwrap(),
+            value: info.support_lines_long.get_latest().unwrap(),
             memo: "サポートライン（長期）の現在値".to_owned(),
         })?;
 
@@ -221,7 +221,7 @@ where
             bot_name: self.config.bot_name.to_owned(),
             pair: info.pair.to_string(),
             r#type: "support_line_short_value".to_owned(),
-            value: info.support_lines_short.get_current().unwrap(),
+            value: info.support_lines_short.get_latest().unwrap(),
             memo: "サポートライン（短期）の現在値".to_owned(),
         })?;
 

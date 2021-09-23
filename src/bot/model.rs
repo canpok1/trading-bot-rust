@@ -67,15 +67,33 @@ pub enum ActionType {
 }
 
 pub trait LineMethod {
-    fn get_current(&self) -> Option<f64>;
+    fn get_latest(&self) -> Option<f64>;
+    fn get_later(&self, size: usize) -> MyResult<Vec<f64>>;
 }
 impl LineMethod for Vec<f64> {
-    fn get_current(&self) -> Option<f64> {
+    fn get_latest(&self) -> Option<f64> {
         if let Some(v) = self.last() {
             Some(*v)
         } else {
             None
         }
+    }
+
+    fn get_later(&self, size: usize) -> MyResult<Vec<f64>> {
+        let len = self.len();
+        if len < size {
+            return Err(Box::new(TooShort {
+                name: "line".to_string(),
+                len: len,
+                required: size,
+            }));
+        }
+        let mut results = vec![];
+        for i in 0..size {
+            results.push(self[len - size + i]);
+        }
+
+        Ok(results)
     }
 }
 

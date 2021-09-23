@@ -207,15 +207,28 @@ impl ScalpingStrategy<'_> {
         open_order: &OpenOrder,
     ) -> MyResult<Option<ActionType>> {
         let current = info.get_sell_rate()?;
-        if let Some(before) = info.sell_rate_histories.get_current() {
-            if current >= before {
-                debug!("{}", format!("NONE <= should not set profit, rate is rising, current:{:.3} >= before:{:.3}", current, before ).blue());
-                return Ok(None);
+        let histories = info.sell_rate_histories.get_later(5)?;
+
+        let mut skip = false;
+        let mut tmp = current;
+        for h in histories.iter().rev() {
+            if tmp > *h {
+                skip = true;
+                break;
             }
-        } else {
+            if tmp < *h {
+                break;
+            }
+            tmp = *h;
+        }
+        if skip {
             debug!(
                 "{}",
-                "NONE <= should not set profit, before rate is nothing".blue()
+                format!(
+                    "NONE <= should not set profit, rate is rising, current:{:.3}, histories:{:?}",
+                    current, histories
+                )
+                .blue()
             );
             return Ok(None);
         }
