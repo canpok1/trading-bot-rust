@@ -63,7 +63,7 @@ where
         let buy_jpy_per_lot = self.calc_buy_jpy()?;
 
         self.upsert(&info)?;
-        let params = self.strategy.judge(now, &info, buy_jpy_per_lot)?;
+        let params = self.strategy.judge(now, &info, buy_jpy_per_lot).await?;
         self.action(params).await?;
         Ok(())
     }
@@ -82,7 +82,7 @@ where
             let p = format!("{}_{}", k, &param.pair.settlement);
             let r = self
                 .coincheck_client
-                .get_exchange_orders_rate(OrderType::Sell, &p)
+                .get_exchange_orders_rate(OrderType::Sell, &p, 1.0)
                 .await?;
             sell_rates.insert(p, r);
         }
@@ -91,7 +91,7 @@ where
 
         param.buy_rate = self
             .coincheck_client
-            .get_exchange_orders_rate(OrderType::Buy, &self.config.target_pair)
+            .get_exchange_orders_rate(OrderType::Buy, &self.config.target_pair, 1.0)
             .await?;
 
         let mut open_orders = vec![];

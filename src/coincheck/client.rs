@@ -10,6 +10,8 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 use async_trait::async_trait;
+use mockall::predicate::*;
+use mockall::*;
 use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
 use openssl::sign::Signer;
@@ -19,10 +21,16 @@ use serde::Serialize;
 const BASE_URL: &str = "https://coincheck.com";
 
 #[async_trait]
+#[automock]
 pub trait Client {
     async fn get_order_books(&self, pair: &str) -> MyResult<OrderBooks>;
 
-    async fn get_exchange_orders_rate(&self, t: OrderType, pair: &str) -> MyResult<f64>;
+    async fn get_exchange_orders_rate(
+        &self,
+        t: OrderType,
+        pair: &str,
+        amount: f64,
+    ) -> MyResult<f64>;
 
     async fn post_exchange_orders(&self, req: &NewOrder) -> MyResult<Order>;
 
@@ -58,9 +66,27 @@ impl Client for DefaultClient {
         body.to_model()
     }
 
-    async fn get_exchange_orders_rate(&self, t: OrderType, pair: &str) -> MyResult<f64> {
+    async fn get_exchange_orders_rate(
+        &self,
+        t: OrderType,
+        pair: &str,
+        amount: f64,
+    ) -> MyResult<f64> {
         let url = format!("{}{}", BASE_URL, "/api/exchange/orders/rate");
-        let params = [("order_type", t.to_str()), ("pair", pair), ("amount", "1")];
+        let amount_str = format!("{:.3}", amount);
+        let params = [
+            (
+                "order_type",
+                match t {
+                    OrderType::Buy => "buy",
+                    OrderType::MarketBuy => "buy",
+                    OrderType::Sell => "sell",
+                    OrderType::MarketSell => "sell",
+                },
+            ),
+            ("pair", pair),
+            ("amount", &amount_str),
+        ];
         let body = self
             .client
             .get(&url)

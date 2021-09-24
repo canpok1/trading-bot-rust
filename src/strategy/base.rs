@@ -1,10 +1,12 @@
 use crate::bot::model::{ActionType, TradeInfo};
 use crate::error::MyResult;
+use async_trait::async_trait;
 use chrono::DateTime;
 use chrono::Utc;
 
+#[async_trait]
 pub trait Strategy {
-    fn judge(
+    async fn judge(
         &self,
         now: &DateTime<Utc>,
         info: &TradeInfo,

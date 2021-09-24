@@ -2,22 +2,31 @@ use crate::bot::model::{
     ActionType, AvgDownParam, EntryParam, LineMethod, LossCutParam, NotifyParam, SetProfitParam,
     TradeInfo,
 };
-use crate::coincheck::model::Pair;
-use crate::coincheck::model::{OpenOrder, OrderType};
+use crate::coincheck;
+use crate::coincheck::model::{OpenOrder, OrderType, Pair};
 use crate::error::MyResult;
 use crate::slack::client::TextMessage;
 use crate::strategy::base::Strategy;
 use crate::util;
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use colored::Colorize;
 use log::{debug, info};
 
-pub struct ScalpingStrategy<'a> {
+pub struct ScalpingStrategy<'a, T>
+where
+    T: coincheck::client::Client,
+{
     pub config: &'a crate::config::Config,
+    pub coincheck_cli: &'a T,
 }
 
-impl Strategy for ScalpingStrategy<'_> {
-    fn judge(
+#[async_trait]
+impl<T> Strategy for ScalpingStrategy<'_, T>
+where
+    T: coincheck::client::Client + std::marker::Sync,
+{
+    async fn judge(
         &self,
         now: &DateTime<Utc>,
         info: &TradeInfo,
@@ -32,7 +41,7 @@ impl Strategy for ScalpingStrategy<'_> {
         }
 
         debug!("========== check open orders ==========");
-        let mut action_types = self.check_open_orders(now, info, buy_jpy_per_lot)?;
+        let mut action_types = self.check_open_orders(now, info, buy_jpy_per_lot).await?;
         if !action_types.is_empty() {
             actions.append(&mut action_types);
         }
@@ -54,7 +63,10 @@ impl Strategy for ScalpingStrategy<'_> {
     }
 }
 
-impl ScalpingStrategy<'_> {
+impl<T> ScalpingStrategy<'_, T>
+where
+    T: coincheck::client::Client,
+{
     // 未使用コインが一定以上なら通知
     fn check_unused_coin(
         &self,
@@ -89,7 +101,7 @@ impl ScalpingStrategy<'_> {
     }
 
     // 未決済注文の確認（損切り, ナンピン, 利確）
-    fn check_open_orders(
+    async fn check_open_orders(
         &self,
         now: &DateTime<Utc>,
         info: &TradeInfo,
@@ -110,7 +122,7 @@ impl ScalpingStrategy<'_> {
                         actions.push(a);
                         continue;
                     }
-                    if let Some(a) = self.check_set_profit(info, open_order)? {
+                    if let Some(a) = self.check_set_profit(info, open_order).await? {
                         actions.push(a);
                         continue;
                     }
@@ -202,7 +214,7 @@ impl ScalpingStrategy<'_> {
     }
 
     // 利確？
-    fn check_set_profit(
+    async fn check_set_profit(
         &self,
         info: &TradeInfo,
         open_order: &OpenOrder,
@@ -234,8 +246,17 @@ impl ScalpingStrategy<'_> {
             return Ok(None);
         }
 
+        let rate = self
+            .coincheck_cli
+            .get_exchange_orders_rate(
+                OrderType::MarketSell,
+                &info.pair.to_string(),
+                open_order.pending_amount,
+            )
+            .await?;
+
         let (should_set_profit, memo) =
-            util::should_set_profit(current, open_order, self.config.offset_sell_rate_ratio);
+            util::should_set_profit(rate, open_order, self.config.offset_sell_rate_ratio);
         if should_set_profit {
             info!("{} <= {}", "Set Profit".green(), memo);
             let action = ActionType::SetProfit(SetProfitParam {
@@ -490,13 +511,17 @@ mod tests {
     use super::*;
     use crate::bot::model::LossCutParam;
     use crate::bot::model::NotifyParam;
+    use crate::coincheck::client::MockClient;
     use crate::coincheck::model::{Balance, OrderBooks, Pair};
     use crate::config::Config;
     use crate::mysql::model::MarketSummary;
     use crate::slack::client::TextMessage;
     use crate::strategy::scalping::ActionType::LossCut;
+
     use std::collections::HashMap;
     use std::mem;
+
+    use mockall::predicate::*;
 
     const COIN_KEY: &str = "btc";
     const COIN_SETTLEMENT: &str = "jpy";
@@ -545,7 +570,11 @@ mod tests {
 
         for (name, p) in params.iter() {
             let config = make_config();
-            let strategy = ScalpingStrategy { config: &config };
+            let client = MockClient::new();
+            let strategy = ScalpingStrategy {
+                config: &config,
+                coincheck_cli: &client,
+            };
             let now = DateTime::parse_from_rfc3339(&p.now)
                 .unwrap()
                 .with_timezone(&Utc);
@@ -640,7 +669,12 @@ mod tests {
             config.loss_cut_rate_ratio = p.loss_cut_rate_ratio;
             config.offset_sell_rate_ratio = p.offset_sell_rate_ratio;
 
-            let strategy = ScalpingStrategy { config: &config };
+            let client = MockClient::new();
+
+            let strategy = ScalpingStrategy {
+                config: &config,
+                coincheck_cli: &client,
+            };
             let mut info = make_info();
             info.sell_rates
                 .insert(format!("{}_{}", COIN_KEY, COIN_SETTLEMENT), p.sell_rate);
