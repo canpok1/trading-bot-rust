@@ -58,7 +58,6 @@ where
             )
             .yellow(),
         );
-        debug!("sell_rates:{:?}", info.sell_rates);
 
         let buy_jpy_per_lot = self.calc_buy_jpy()?;
 
@@ -87,7 +86,6 @@ where
             sell_rates.insert(p, r);
         }
         param.sell_rates = sell_rates;
-        debug!("sell_rates:{:?}", param.sell_rates);
 
         param.buy_rate = self
             .coincheck_client
