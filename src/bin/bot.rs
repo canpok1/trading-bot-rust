@@ -1,3 +1,4 @@
+use crate::env_logger::Builder;
 use chrono::Utc;
 use trading_bot_rust::bot::action::ActionBehavior;
 use trading_bot_rust::bot::base::Bot;
@@ -10,7 +11,8 @@ use log::{error, info};
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    let mut builder = Builder::from_default_env();
+    builder.format_module_path(false).init();
 
     let config: Config;
     match envy::from_env::<Config>() {

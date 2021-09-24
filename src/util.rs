@@ -143,7 +143,7 @@ pub fn should_set_profit(
         (
             false,
             format!(
-                "should not set profit , sell_rate:{:.3} <= border:{:.3}",
+                "should not set profit, sell_rate:{:.3} <= border:{:.3}",
                 sell_rate, border,
             ),
         )

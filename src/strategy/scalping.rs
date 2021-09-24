@@ -112,6 +112,14 @@ where
             debug!("{}", "NONE <= open orders is empty".blue());
         }
         for open_order in &info.open_orders {
+            debug!(
+                "{}",
+                format!(
+                    "----- check open_order, id:{}, rate:{}, amount:{} -----",
+                    open_order.id, open_order.rate, open_order.pending_amount
+                )
+                .blue()
+            );
             match open_order.order_type {
                 OrderType::Sell => {
                     if let Some(a) = self.check_loss_cut(info, open_order)? {
