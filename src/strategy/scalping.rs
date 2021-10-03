@@ -35,7 +35,7 @@ where
         let mut actions: Vec<ActionType> = Vec::new();
 
         debug!("========== check unused coin ==========");
-        if let Some(action_type) = self.check_unused_coin(now, info)? {
+        if let Some(action_type) = self.check_unused_coin(now, info, buy_jpy_per_lot)? {
             actions.push(action_type);
             return Ok(actions);
         }
@@ -72,6 +72,7 @@ where
         &self,
         now: &DateTime<Utc>,
         info: &TradeInfo,
+        buy_jpy_per_lot: f64,
     ) -> MyResult<Option<ActionType>> {
         let (is_notification_timing, memo) = util::is_notification_timing(now);
         if !is_notification_timing {
@@ -79,7 +80,8 @@ where
             return Ok(None);
         }
 
-        let (has_unused_coin, memo) = util::has_unused_coin(info.get_balance_key()?, 1.0);
+        let border = buy_jpy_per_lot / info.buy_rate;
+        let (has_unused_coin, memo) = util::has_unused_coin(info.get_balance_key()?, border);
         if has_unused_coin {
             debug!("{}", format!("NONE <= {}", memo).blue());
             return Ok(None);
@@ -539,6 +541,8 @@ mod tests {
         struct Param {
             key_amount: f64,
             key_reserved: f64,
+            buy_jpy_per_lot: f64,
+            buy_rate: f64,
             now: String,
             want: Option<ActionType>,
         }
@@ -548,6 +552,8 @@ mod tests {
             Param {
                 key_amount: 0.9,
                 key_reserved: 1.0,
+                buy_jpy_per_lot: 2.0,
+                buy_rate: 2.0,
                 now: "2018-12-07T19:30:20+09:00".to_string(),
                 want: None,
             },
@@ -557,6 +563,8 @@ mod tests {
             Param {
                 key_amount: 1.0,
                 key_reserved: 0.0,
+                buy_jpy_per_lot: 2.0,
+                buy_rate: 2.0,
                 now: "2018-12-07T19:31:28+09:00".to_string(),
                 want: None,
             },
@@ -566,6 +574,8 @@ mod tests {
             Param {
                 key_amount: 1.0,
                 key_reserved: 0.0,
+                buy_jpy_per_lot: 2.0,
+                buy_rate: 2.0,
                 now: "2018-12-07T19:30:20+09:00".to_string(),
                 want: Some(ActionType::Notify(NotifyParam {
                     log_message: "".to_string(),
@@ -594,8 +604,9 @@ mod tests {
                     reserved: p.key_reserved,
                 },
             );
+            info.buy_rate = p.buy_rate;
 
-            let got = strategy.check_unused_coin(&now, &info);
+            let got = strategy.check_unused_coin(&now, &info, p.buy_jpy_per_lot);
             assert!(got.is_ok(), "{}, failure: want: ok, got: err", name);
 
             let got = got.unwrap();
