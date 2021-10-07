@@ -247,7 +247,7 @@ where
             return Ok(());
         }
         // ナンピンすると余裕なくなるならスキップする
-        let required = param.market_buy_amount * self.config.keep_lot;
+        let required = param.buy_jpy_per_lot * self.config.keep_lot;
         if balance_jpy.amount - param.market_buy_amount < required {
             warn!(
                 "{}",
