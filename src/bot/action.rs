@@ -137,12 +137,15 @@ where
             info!("{}", "skip entry as demo mode".green());
             return Ok(());
         }
-        if balance_jpy.amount < param.amount {
+        // エントリーすると余裕なくなるならスキップする
+        let required = param.amount * self.config.keep_lot;
+        if balance_jpy.amount - param.amount < required {
             warn!(
                 "{}",
                 format!(
                     "skip entry, balance jpy is too little ({:.3} < {:.3})",
-                    balance_jpy.amount, param.amount
+                    balance_jpy.amount - param.amount,
+                    required
                 )
                 .yellow()
             );
