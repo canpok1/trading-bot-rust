@@ -1,7 +1,7 @@
 version: '3'
 services:
   bot-mona:
-    image: docker.pkg.github.com/canpok1/trading-bot-rust/bot:latest
+    image: ghcr.io/canpok1/trading-bot-rust/bot:latest
     env_file:
       - configs/bot.env
       - configs/bot-mona.env
@@ -11,7 +11,7 @@ services:
     networks:
       - trading-bot-network
   bot-plt:
-    image: docker.pkg.github.com/canpok1/trading-bot-rust/bot:latest
+    image: ghcr.io/canpok1/trading-bot-rust/bot:latest
     env_file:
       - configs/bot.env
       - configs/bot-plt.env
@@ -21,7 +21,7 @@ services:
     networks:
       - trading-bot-network
   bot-etc:
-    image: docker.pkg.github.com/canpok1/trading-bot-rust/bot:latest
+    image: ghcr.io/canpok1/trading-bot-rust/bot:latest
     env_file:
       - configs/bot.env
       - configs/bot-etc.env
@@ -31,7 +31,7 @@ services:
     networks:
       - trading-bot-network
   bot-btc:
-    image: docker.pkg.github.com/canpok1/trading-bot-rust/bot:latest
+    image: ghcr.io/canpok1/trading-bot-rust/bot:latest
     env_file:
       - configs/bot.env
       - configs/bot-btc.env
