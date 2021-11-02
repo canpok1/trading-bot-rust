@@ -15,8 +15,12 @@ pub enum MyError {
         required: usize,
     },
 
-    #[error("response is error, {}, request:{}", message, request)]
-    ErrorResponse { message: String, request: String },
+    #[error("response is error, {}, url:{}, request:{}", message, url, request)]
+    ResponseError {
+        message: String,
+        url: String,
+        request: String,
+    },
 
     #[error("{} not found in {}", key, collection_name)]
     KeyNotFound {

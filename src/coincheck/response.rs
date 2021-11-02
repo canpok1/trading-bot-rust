@@ -7,6 +7,12 @@ use std::collections::HashMap;
 use chrono::DateTime;
 use serde::Deserialize;
 
+#[derive(Deserialize, Debug)]
+pub struct ErrorResponse {
+    pub success: bool,
+    pub error: String,
+}
+
 // 板情報取得
 // GET /api/order_books
 #[derive(Deserialize, Debug)]

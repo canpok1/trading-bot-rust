@@ -3,13 +3,15 @@ use crate::coincheck::request::OrdersPostRequest;
 use crate::coincheck::response::OrdersCancelStatusGetResponse;
 use crate::coincheck::response::OrdersDeleteResponse;
 use crate::coincheck::response::*;
-use crate::error::MyError::{ErrorResponse, ParseError};
+use crate::error::MyError::{ParseError, ResponseError};
 use crate::error::MyResult;
+use std::time::Duration;
 
 use std::collections::HashMap;
 use std::time::SystemTime;
 
 use async_trait::async_trait;
+use log::warn;
 use mockall::predicate::*;
 use mockall::*;
 use openssl::hash::MessageDigest;
@@ -19,6 +21,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 const BASE_URL: &str = "https://coincheck.com";
+const MAX_RETRY_COUNT: i32 = 5;
+const RETRY_INTERVAL_MS: u64 = 10;
 
 #[async_trait]
 #[automock]
@@ -109,8 +113,9 @@ impl Client for DefaultClient {
         if res.success {
             Ok(res.to_model()?)
         } else {
-            Err(Box::new(ErrorResponse {
+            Err(Box::new(ResponseError {
                 message: res.error.unwrap(),
+                url: url,
                 request: format!("{:?}", *req),
             }))
         }
@@ -168,25 +173,47 @@ impl DefaultClient {
     }
 
     async fn get_request_with_auth<T: DeserializeOwned>(&self, url: &str) -> MyResult<T> {
-        let nonce = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)?
-            .as_millis();
-        let signature = make_signature(nonce, &url, "", &self.secret_key);
+        let mut retry_count: i32 = 0;
+        loop {
+            let nonce = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)?
+                .as_millis();
+            let signature = make_signature(nonce, &url, "", &self.secret_key);
 
-        let res_text = self
-            .client
-            .get(url)
-            .header("ACCESS-KEY", &self.access_key)
-            .header("ACCESS-NONCE", format!("{}", nonce))
-            .header("ACCESS-SIGNATURE", signature)
-            .send()
-            .await?
-            .text()
-            .await?;
+            let res_text = self
+                .client
+                .get(url)
+                .header("ACCESS-KEY", &self.access_key)
+                .header("ACCESS-NONCE", format!("{}", nonce))
+                .header("ACCESS-SIGNATURE", signature)
+                .send()
+                .await?
+                .text()
+                .await?;
 
-        match serde_json::from_str::<T>(&res_text) {
-            Ok(res) => Ok(res),
-            Err(_) => Err(Box::new(ParseError(res_text))),
+            if let Ok(res) = serde_json::from_str::<T>(&res_text) {
+                return Ok(res);
+            }
+            if let Ok(res) = serde_json::from_str::<ErrorResponse>(&res_text) {
+                if DefaultClient::should_retry(&res) {
+                    retry_count += 1;
+                    if retry_count <= MAX_RETRY_COUNT {
+                        warn!(
+                            "response is error, retry request retry_count:{} <= max:{}, error:{}",
+                            retry_count, MAX_RETRY_COUNT, res.error,
+                        );
+                        let d = Duration::from_millis(RETRY_INTERVAL_MS);
+                        std::thread::sleep(d);
+                        continue;
+                    }
+                }
+                return Err(Box::new(ResponseError {
+                    message: res.error,
+                    url: url.to_owned(),
+                    request: "".to_owned(),
+                }));
+            }
+            return Err(Box::new(ParseError(res_text)));
         }
     }
 
@@ -195,52 +222,100 @@ impl DefaultClient {
         T: Serialize,
         U: DeserializeOwned,
     {
-        let nonce = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)?
-            .as_millis();
-        let json = serde_json::to_string(&body)?;
-        let signature = make_signature(nonce, &url, &json, &self.secret_key);
+        let mut retry_count: i32 = 0;
+        loop {
+            let nonce = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)?
+                .as_millis();
+            let json = serde_json::to_string(&body)?;
+            let signature = make_signature(nonce, &url, &json, &self.secret_key);
 
-        let res_text = self
-            .client
-            .post(url)
-            .header("Content-Type", "application/json")
-            .header("ACCESS-KEY", &self.access_key)
-            .header("ACCESS-NONCE", format!("{}", nonce))
-            .header("ACCESS-SIGNATURE", signature)
-            .body(json)
-            .send()
-            .await?
-            .text()
-            .await?;
+            let res_text = self
+                .client
+                .post(url)
+                .header("Content-Type", "application/json")
+                .header("ACCESS-KEY", &self.access_key)
+                .header("ACCESS-NONCE", format!("{}", nonce))
+                .header("ACCESS-SIGNATURE", signature)
+                .body(json.clone())
+                .send()
+                .await?
+                .text()
+                .await?;
 
-        match serde_json::from_str::<U>(&res_text) {
-            Ok(res) => Ok(res),
-            Err(_) => Err(Box::new(ParseError(res_text))),
+            if let Ok(res) = serde_json::from_str::<U>(&res_text) {
+                return Ok(res);
+            }
+            if let Ok(res) = serde_json::from_str::<ErrorResponse>(&res_text) {
+                if DefaultClient::should_retry(&res) {
+                    retry_count += 1;
+                    if retry_count <= MAX_RETRY_COUNT {
+                        warn!(
+                            "response is error, retry request retry_count:{} <= max:{}, error:{}",
+                            retry_count, MAX_RETRY_COUNT, res.error,
+                        );
+                        let d = Duration::from_millis(RETRY_INTERVAL_MS);
+                        std::thread::sleep(d);
+                        continue;
+                    }
+                }
+                return Err(Box::new(ResponseError {
+                    message: res.error,
+                    url: url.to_owned(),
+                    request: json,
+                }));
+            }
+            return Err(Box::new(ParseError(res_text)));
         }
     }
 
     async fn delete_request_with_auth<T: DeserializeOwned>(&self, url: &str) -> MyResult<T> {
-        let nonce = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)?
-            .as_millis();
-        let signature = make_signature(nonce, &url, "", &self.secret_key);
+        let mut retry_count: i32 = 0;
+        loop {
+            let nonce = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)?
+                .as_millis();
+            let signature = make_signature(nonce, &url, "", &self.secret_key);
 
-        let res_text = self
-            .client
-            .delete(url)
-            .header("ACCESS-KEY", &self.access_key)
-            .header("ACCESS-NONCE", format!("{}", nonce))
-            .header("ACCESS-SIGNATURE", signature)
-            .send()
-            .await?
-            .text()
-            .await?;
+            let res_text = self
+                .client
+                .delete(url)
+                .header("ACCESS-KEY", &self.access_key)
+                .header("ACCESS-NONCE", format!("{}", nonce))
+                .header("ACCESS-SIGNATURE", signature)
+                .send()
+                .await?
+                .text()
+                .await?;
 
-        match serde_json::from_str::<T>(&res_text) {
-            Ok(res) => Ok(res),
-            Err(_) => Err(Box::new(ParseError(res_text))),
+            if let Ok(res) = serde_json::from_str::<T>(&res_text) {
+                return Ok(res);
+            }
+            if let Ok(res) = serde_json::from_str::<ErrorResponse>(&res_text) {
+                if DefaultClient::should_retry(&res) {
+                    retry_count += 1;
+                    if retry_count <= MAX_RETRY_COUNT {
+                        warn!(
+                            "response is error, retry request retry_count:{} <= max:{}, error:{}",
+                            retry_count, MAX_RETRY_COUNT, res.error,
+                        );
+                        let d = Duration::from_millis(RETRY_INTERVAL_MS);
+                        std::thread::sleep(d);
+                        continue;
+                    }
+                }
+                return Err(Box::new(ResponseError {
+                    message: res.error,
+                    url: url.to_owned(),
+                    request: "".to_owned(),
+                }));
+            }
+            return Err(Box::new(ParseError(res_text)));
         }
+    }
+
+    fn should_retry(res: &ErrorResponse) -> bool {
+        res.error == "Nonce must be incremented"
     }
 }
 
