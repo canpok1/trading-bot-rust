@@ -63,11 +63,11 @@ pub fn is_notification_timing(now: &DateTime<Utc>) -> (bool, String) {
 
 pub fn should_loss_cut(
     sell_rate: f64,
-    open_order: &OpenOrder,
+    open_order_rate: f64,
     loss_cut_rate_ratio: f64,
     offset_sell_rate_ratio: f64,
 ) -> (bool, String) {
-    let lower = open_order.rate / (1.0 + offset_sell_rate_ratio) * loss_cut_rate_ratio;
+    let lower = open_order_rate / (1.0 + offset_sell_rate_ratio) * loss_cut_rate_ratio;
     if sell_rate < lower {
         (
             true,

@@ -151,7 +151,7 @@ where
     ) -> MyResult<Option<ActionType>> {
         let (should_loss_cut, memo) = util::should_loss_cut(
             info.get_sell_rate()?,
-            open_order,
+            open_order.rate,
             self.config.loss_cut_rate_ratio,
             self.config.offset_sell_rate_ratio,
         );
@@ -283,6 +283,20 @@ where
 
     fn should_check_entry(&self, info: &TradeInfo, buy_jpy_per_lot: f64) -> MyResult<bool> {
         let mut should = true;
+
+        // 売レートと買レートの差が大きい（エントリーするとすぐロスカットされる）ならスキップ
+        let (should_loss_cut, memo) = util::should_loss_cut(
+            info.get_sell_rate()?,
+            info.buy_rate * (1.0 + self.config.offset_sell_rate_ratio),
+            self.config.loss_cut_rate_ratio,
+            self.config.offset_sell_rate_ratio,
+        );
+        if should_loss_cut {
+            info!("{} <= {}", "SKIP".red(), memo,);
+            should = false;
+        } else {
+            debug!("{}", format!("NOT SKIP <= {}", memo,).blue());
+        }
 
         // 長期トレンドが下降トレンドならスキップ
         // 移動平均の短期が長期より下なら下降トレンドと判断
