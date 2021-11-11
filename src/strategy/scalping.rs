@@ -124,11 +124,11 @@ where
             );
             match open_order.order_type {
                 OrderType::Sell => {
-                    if let Some(a) = self.check_loss_cut(info, open_order)? {
+                    if let Some(a) = self.check_avg_down(now, info, open_order, buy_jpy_per_lot)? {
                         actions.push(a);
                         continue;
                     }
-                    if let Some(a) = self.check_avg_down(now, info, open_order, buy_jpy_per_lot)? {
+                    if let Some(a) = self.check_loss_cut(info, open_order)? {
                         actions.push(a);
                         continue;
                     }
