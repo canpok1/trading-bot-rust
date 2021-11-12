@@ -480,6 +480,22 @@ where
     ) -> MyResult<Option<ActionType>> {
         let sell_rate = info.get_sell_rate()?;
 
+        // サポートラインの傾きが負ならエントリーしない
+        let slope_long = util::calc_slope(&info.support_lines_long)?;
+        let slope_short = util::calc_slope(&info.support_lines_short)?;
+        if slope_long < 0.0 && slope_short < 0.0 {
+            debug!(
+                "{}",
+                format!(
+                    "NONE <= slope of support_line is negative, slope_long:{:.3} < 0.0, slope_short:{:.3} < 0.0",
+                    slope_long,
+                    slope_short,
+                )
+                .blue()
+            );
+            return Ok(None);
+        }
+
         // サポートラインすぐ上でリバウンドしていないならエントリーしない
         let (is_rebounded_long, memo_long) = util::is_rebounded(
             sell_rate,
