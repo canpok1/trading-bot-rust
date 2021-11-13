@@ -108,22 +108,6 @@ where
         param.sell_volumes = markets.sell_volumes();
         param.buy_volumes = markets.buy_volumes();
 
-        param.support_lines_long = TradeInfoParam::support_lines(
-            &param.sell_rate_histories,
-            self.config.support_line_period_long,
-            self.config.support_line_offset,
-        )?;
-        param.support_lines_short = TradeInfoParam::support_lines(
-            &param.sell_rate_histories,
-            self.config.support_line_period_short,
-            self.config.support_line_offset,
-        )?;
-        param.resistance_lines = TradeInfoParam::resistance_lines(
-            &param.sell_rate_histories,
-            self.config.resistance_line_period,
-            self.config.resistance_line_offset,
-        )?;
-
         param.order_books = self
             .coincheck_client
             .get_order_books(&self.config.target_pair)
@@ -132,6 +116,12 @@ where
         param.market_summary = self
             .mysql_client
             .select_market_summary(&self.config.target_pair, 1)?;
+
+        param.support_line_period_long = self.config.support_line_period_long;
+        param.support_line_period_short = self.config.support_line_period_short;
+        param.support_line_offset = self.config.support_line_offset;
+        param.resistance_line_period = self.config.resistance_line_period;
+        param.resistance_line_offset = self.config.resistance_line_offset;
 
         Ok(param.build()?)
     }

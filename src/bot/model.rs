@@ -126,15 +126,34 @@ pub struct TradeInfoParam {
     pub sell_rate_histories: Vec<f64>,
     pub sell_volumes: Vec<f64>,
     pub buy_volumes: Vec<f64>,
-    pub support_lines_long: StraightLine,
-    pub support_lines_short: StraightLine,
-    pub resistance_lines: StraightLine,
     pub order_books: OrderBooks,
     pub market_summary: MarketSummary,
+
+    pub support_line_period_long: usize,
+    pub support_line_period_short: usize,
+    pub support_line_offset: usize,
+    pub resistance_line_period: usize,
+    pub resistance_line_offset: usize,
 }
 
 impl TradeInfoParam {
     pub fn build(&self) -> MyResult<TradeInfo> {
+        let support_lines_long = TradeInfoParam::support_lines(
+            &self.sell_rate_histories,
+            self.support_line_period_long,
+            self.support_line_offset,
+        )?;
+        let support_lines_short = TradeInfoParam::support_lines(
+            &self.sell_rate_histories,
+            self.support_line_period_short,
+            self.support_line_offset,
+        )?;
+        let resistance_lines = TradeInfoParam::resistance_lines(
+            &self.sell_rate_histories,
+            self.resistance_line_period,
+            self.resistance_line_offset,
+        )?;
+
         Ok(TradeInfo {
             pair: self.pair.clone(),
             balances: self.balances.clone(),
@@ -144,15 +163,15 @@ impl TradeInfoParam {
             sell_rate_histories: self.sell_rate_histories.clone(),
             sell_volumes: self.sell_volumes.clone(),
             buy_volumes: self.buy_volumes.clone(),
-            support_lines_long: self.support_lines_long.clone(),
-            support_lines_short: self.support_lines_short.clone(),
-            resistance_lines: self.resistance_lines.clone(),
+            support_lines_long: support_lines_long,
+            support_lines_short: support_lines_short,
+            resistance_lines: resistance_lines,
             order_books: self.order_books.clone(),
             market_summary: self.market_summary.clone(),
         })
     }
 
-    pub fn support_lines(
+    fn support_lines(
         rate_histories: &Vec<f64>,
         period: usize,
         offset: usize,
@@ -195,7 +214,7 @@ impl TradeInfoParam {
         Ok(TradeInfoParam::make_line(a, b, rate_histories.len()))
     }
 
-    pub fn resistance_lines(
+    fn resistance_lines(
         rate_histories: &Vec<f64>,
         period: usize,
         offset: usize,
