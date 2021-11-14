@@ -192,7 +192,8 @@ pub fn is_down_trend(wma_short: f64, wma_long: f64) -> (bool, String) {
 }
 
 pub fn has_near_rate_order(
-    sell_rate: f64,
+    buy_rate: f64,
+    profit_ratio: f64,
     open_orders: &Vec<OpenOrder>,
     entry_skip_rate_ratio: f64,
 ) -> (bool, String) {
@@ -210,6 +211,7 @@ pub fn has_near_rate_order(
         }
     }
 
+    let sell_rate = buy_rate * (1.0 + profit_ratio);
     if sell_rate > min_rate * entry_skip_rate_ratio {
         (
             true,

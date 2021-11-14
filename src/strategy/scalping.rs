@@ -317,8 +317,12 @@ impl ScalpingStrategy<'_> {
         }
 
         // 未決済注文のレートが現レートとあまり離れてないならスキップ
+        let profit_ratio = (1.0 + self.config.profit_ratio_per_order)
+            * (1.0 + self.config.offset_sell_rate_ratio)
+            - 1.0;
         let (has_near_rate_order, memo) = util::has_near_rate_order(
-            info.get_sell_rate()?,
+            info.buy_rate,
+            profit_ratio,
             &info.open_orders,
             self.config.entry_skip_rate_ratio,
         );
