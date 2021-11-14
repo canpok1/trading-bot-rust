@@ -3,6 +3,7 @@ pub mod coincheck;
 pub mod config;
 pub mod error;
 pub mod mysql;
+pub mod simulator;
 pub mod slack;
 pub mod strategy;
 pub mod util;

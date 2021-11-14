@@ -9,3 +9,7 @@ env_files = [
 [tasks.run]
 command = "cargo"
 args = ["run", "--bin", "bot"]
+
+[tasks.simulation]
+command = "cargo"
+args = ["run", "--bin", "simulator"]
