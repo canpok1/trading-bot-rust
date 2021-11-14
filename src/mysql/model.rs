@@ -1,7 +1,7 @@
 use crate::coincheck::model::Pair;
 use chrono::Utc;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Market {
     pub pair: String,
     pub store_rate_avg: f64,

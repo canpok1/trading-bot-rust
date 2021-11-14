@@ -27,6 +27,9 @@ pub enum MyError {
         key: String,
         collection_name: String,
     },
+
+    #[error("{0} is empty")]
+    EmptyCollection(String),
 }
 
 pub type MyResult<T> = Result<T, Box<dyn Error>>;

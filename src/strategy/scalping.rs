@@ -13,25 +13,22 @@ use chrono::{DateTime, Utc};
 use colored::Colorize;
 use log::{debug, info};
 
-pub struct ScalpingStrategy<'a, T>
-where
-    T: coincheck::client::Client,
-{
+pub struct ScalpingStrategy<'a> {
     pub config: &'a crate::config::Config,
-    pub coincheck_cli: &'a T,
 }
 
 #[async_trait]
-impl<T> Strategy for ScalpingStrategy<'_, T>
-where
-    T: coincheck::client::Client + std::marker::Sync,
-{
-    async fn judge(
+impl Strategy for ScalpingStrategy<'_> {
+    async fn judge<T>(
         &self,
         now: &DateTime<Utc>,
         info: &TradeInfo,
         buy_jpy_per_lot: f64,
-    ) -> MyResult<Vec<ActionType>> {
+        coincheck_cli: &T,
+    ) -> MyResult<Vec<ActionType>>
+    where
+        T: coincheck::client::Client + std::marker::Sync,
+    {
         let mut actions: Vec<ActionType> = Vec::new();
 
         debug!("========== check unused coin ==========");
@@ -41,7 +38,9 @@ where
         }
 
         debug!("========== check open orders ==========");
-        let mut action_types = self.check_open_orders(now, info, buy_jpy_per_lot).await?;
+        let mut action_types = self
+            .check_open_orders(now, info, buy_jpy_per_lot, coincheck_cli)
+            .await?;
         if !action_types.is_empty() {
             actions.append(&mut action_types);
         }
@@ -63,10 +62,7 @@ where
     }
 }
 
-impl<T> ScalpingStrategy<'_, T>
-where
-    T: coincheck::client::Client,
-{
+impl ScalpingStrategy<'_> {
     // 未使用コインが一定以上なら通知
     fn check_unused_coin(
         &self,
@@ -103,12 +99,16 @@ where
     }
 
     // 未決済注文の確認（損切り, ナンピン, 利確）
-    async fn check_open_orders(
+    async fn check_open_orders<T>(
         &self,
         now: &DateTime<Utc>,
         info: &TradeInfo,
         buy_jpy_per_lot: f64,
-    ) -> MyResult<Vec<ActionType>> {
+        coincheck_cli: &T,
+    ) -> MyResult<Vec<ActionType>>
+    where
+        T: coincheck::client::Client + std::marker::Sync,
+    {
         let mut actions = Vec::new();
         if info.open_orders.is_empty() {
             debug!("{}", "NONE <= open orders is empty".blue());
@@ -132,7 +132,10 @@ where
                         actions.push(a);
                         continue;
                     }
-                    if let Some(a) = self.check_set_profit(info, open_order).await? {
+                    if let Some(a) = self
+                        .check_set_profit(info, open_order, coincheck_cli)
+                        .await?
+                    {
                         actions.push(a);
                         continue;
                     }
@@ -224,11 +227,15 @@ where
     }
 
     // 利確？
-    async fn check_set_profit(
+    async fn check_set_profit<T>(
         &self,
         info: &TradeInfo,
         open_order: &OpenOrder,
-    ) -> MyResult<Option<ActionType>> {
+        coincheck_cli: &T,
+    ) -> MyResult<Option<ActionType>>
+    where
+        T: coincheck::client::Client + std::marker::Sync,
+    {
         let current = info.get_sell_rate()?;
         let histories = info.sell_rate_histories.get_later(5)?;
 
@@ -256,8 +263,7 @@ where
             return Ok(None);
         }
 
-        let rate = self
-            .coincheck_cli
+        let rate = coincheck_cli
             .get_exchange_orders_rate(
                 OrderType::MarketSell,
                 &info.pair.to_string(),
@@ -618,11 +624,7 @@ mod tests {
 
         for (name, p) in params.iter() {
             let config = make_config();
-            let client = MockClient::new();
-            let strategy = ScalpingStrategy {
-                config: &config,
-                coincheck_cli: &client,
-            };
+            let strategy = ScalpingStrategy { config: &config };
             let now = DateTime::parse_from_rfc3339(&p.now)
                 .unwrap()
                 .with_timezone(&Utc);
@@ -718,12 +720,7 @@ mod tests {
             config.loss_cut_rate_ratio = p.loss_cut_rate_ratio;
             config.offset_sell_rate_ratio = p.offset_sell_rate_ratio;
 
-            let client = MockClient::new();
-
-            let strategy = ScalpingStrategy {
-                config: &config,
-                coincheck_cli: &client,
-            };
+            let strategy = ScalpingStrategy { config: &config };
             let mut info = make_info();
             info.sell_rates
                 .insert(format!("{}_{}", COIN_KEY, COIN_SETTLEMENT), p.sell_rate);

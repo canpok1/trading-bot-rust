@@ -75,10 +75,7 @@ async fn main() {
 
     let strategy_type = StrategyType::Scalping;
     let strategy = match strategy_type {
-        StrategyType::Scalping => strategy::scalping::ScalpingStrategy {
-            config: &config,
-            coincheck_cli: &coincheck_cli,
-        },
+        StrategyType::Scalping => strategy::scalping::ScalpingStrategy { config: &config },
     };
 
     let action_behavior = ActionBehavior {

@@ -32,7 +32,7 @@ impl<T, U, V, W> Bot<'_, T, U, V, W>
 where
     T: slack::client::Client,
     U: mysql::client::Client,
-    V: coincheck::client::Client,
+    V: coincheck::client::Client + std::marker::Sync,
     W: strategy::base::Strategy,
 {
     pub fn wait(&self) -> MyResult<()> {
@@ -62,7 +62,10 @@ where
         let buy_jpy_per_lot = self.calc_buy_jpy()?;
 
         self.upsert(&info)?;
-        let params = self.strategy.judge(now, &info, buy_jpy_per_lot).await?;
+        let params = self
+            .strategy
+            .judge(now, &info, buy_jpy_per_lot, self.coincheck_client)
+            .await?;
         self.action(params).await?;
         Ok(())
     }
